@@ -3,78 +3,71 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
 {
-    [Header("Movement Settings")]
-    public float moveSpeed = 5f;
-    public float turnSpeed = 10f;
+    [Header("References")]
+    [SerializeField] private Transform cameraTransform;   // drag Main Camera here (or leave empty)
+
+    [Header("Movement")]
+    [SerializeField] private float moveSpeed = 6f;        // units per second
+    [SerializeField] private float turnSpeed = 720f;      // degrees per second
+
     private Rigidbody rb;
-    private Vector3 movement;
+    private Vector2 moveInput;                            // x = A/D, y = W/S
+    private Vector3 lastFlatForward = Vector3.forward;    // fallback if camera looks straight up/down
 
-    [Header("Combat Settings")]
-    public int healthPoints = 100; // Required by the brief
-    public GameObject bulletPrefab;
-    public Transform firePoint; // Where the bullet spawns
-    public float bulletSpeed = 15f;
-
-    void Start()
+    private void Awake()
     {
         rb = GetComponent<Rigidbody>();
+
+        // Lock ALL rotation from physics. We set the yaw ourselves via MoveRotation,
+        // so collisions can never spin the cube.
+        rb.constraints = RigidbodyConstraints.FreezeRotation;
+
+        // Smooths the visual between physics steps (FixedUpdate runs at 50 Hz by default).
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+
+        if (cameraTransform == null && Camera.main != null)
+            cameraTransform = Camera.main.transform;
     }
 
-    void Update()
+    private void Update()
     {
-        // 1. Gather 8-directional input (WASD or Arrow Keys)
-        float moveX = Input.GetAxisRaw("Horizontal");
-        float moveZ = Input.GetAxisRaw("Vertical");
+        // Input is read every frame so no key presses are missed.
+        moveInput.x = Input.GetAxisRaw("Horizontal");
+        moveInput.y = Input.GetAxisRaw("Vertical");
 
-        // Normalize prevents moving faster diagonally
-        movement = new Vector3(moveX, 0f, moveZ).normalized;
-
-        // 2. Handle Projectile Attack (Spacebar or Left Click)
-        if (Input.GetButtonDown("Fire1") || Input.GetKeyDown(KeyCode.Space))
-        {
-            Shoot();
-        }
+        // Stops diagonals (W+D) from being ~1.41x faster.
+        moveInput = Vector2.ClampMagnitude(moveInput, 1f);
     }
 
-    void FixedUpdate()
+    private void FixedUpdate()
     {
-        // Apply movement to the Rigidbody for solid wall collisions
-        rb.linearVelocity = movement * moveSpeed;
+        // 1. Camera basis vectors, flattened onto the ground plane
+        Vector3 camForward = cameraTransform.forward;
+        camForward.y = 0f;
 
-        // Rotate the player's "Front Face" to point where they are moving
-        if (movement != Vector3.zero)
-        {
-            Quaternion targetRotation = Quaternion.LookRotation(movement);
-            rb.rotation = Quaternion.Slerp(rb.rotation, targetRotation, turnSpeed * Time.fixedDeltaTime);
-        }
-    }
+        if (camForward.sqrMagnitude < 0.0001f)
+            camForward = lastFlatForward;                 // camera is looking straight up/down
+        else
+            camForward.Normalize();
 
-    void Shoot()
-    {
-        if (bulletPrefab != null && firePoint != null)
-        {
-            // Spawn the bullet and give it forward velocity
-            GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
-            Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
-            if (bulletRb != null)
-            {
-                bulletRb.linearVelocity = firePoint.forward * bulletSpeed;
-            }
-            
-            // Optional: Destroy bullet after 3 seconds to keep memory clean
-            Destroy(bullet, 3f);
-        }
-    }
-    
-    // Method to handle taking damage from NPCs later
-    public void TakeDamage(int damage)
-    {
-        healthPoints -= damage;
-        Debug.Log("Player HP: " + healthPoints);
-        if (healthPoints <= 0)
-        {
-            Debug.Log("Player Defeated!");
-            // Add death logic later (respawn or game over)
-        }
+        lastFlatForward = camForward;
+
+        // Derived from the flat forward so it is guaranteed perpendicular to it.
+        Vector3 camRight = Vector3.Cross(Vector3.up, camForward);
+
+        // 2. Movement (camera-relative)
+        Vector3 moveDir = camForward * moveInput.y + camRight * moveInput.x;
+        Vector3 velocity = moveDir * moveSpeed;
+
+        // Keep the physics-driven vertical speed so gravity/jumping still work.
+        velocity.y = rb.linearVelocity.y;                 // Unity 6: linearVelocity (velocity is deprecated)
+        rb.linearVelocity = velocity;
+
+        // 3. Rotation: always face the camera's flat forward, even when pressing S
+        Quaternion targetRotation = Quaternion.LookRotation(camForward, Vector3.up);
+        Quaternion newRotation = Quaternion.RotateTowards(
+            rb.rotation, targetRotation, turnSpeed * Time.fixedDeltaTime);
+
+        rb.MoveRotation(newRotation);
     }
 }
