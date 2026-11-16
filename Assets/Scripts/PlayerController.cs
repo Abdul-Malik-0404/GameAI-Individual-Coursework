@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
@@ -10,7 +11,7 @@ public class PlayerController : MonoBehaviour
     private Vector3 movement;
 
     [Header("Combat Settings")]
-    public int healthPoints = 100; 
+    public int healthPoints = 100;
     public GameObject bulletPrefab;
     public Transform firePoint; // Where the bullet spawns
     public float bulletSpeed = 15f;
@@ -22,15 +23,29 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        Keyboard kb = Keyboard.current;
+        Mouse mouse = Mouse.current;
+
         // 1. Gather 8-directional input (WASD or Arrow Keys)
-        float moveX = Input.GetAxisRaw("Horizontal");
-        float moveZ = Input.GetAxisRaw("Vertical");
+        float moveX = 0f;
+        float moveZ = 0f;
+
+        if (kb != null)
+        {
+            if (kb.aKey.isPressed || kb.leftArrowKey.isPressed)  moveX -= 1f;
+            if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) moveX += 1f;
+            if (kb.sKey.isPressed || kb.downArrowKey.isPressed)  moveZ -= 1f;
+            if (kb.wKey.isPressed || kb.upArrowKey.isPressed)    moveZ += 1f;
+        }
 
         // Normalize prevents moving faster diagonally
         movement = new Vector3(moveX, 0f, moveZ).normalized;
 
         // 2. Handle Projectile Attack (Spacebar or Left Click)
-        if (Input.GetButtonDown("Fire1") || Input.GetKeyDown(KeyCode.Space))
+        bool spacePressed = kb != null && kb.spaceKey.wasPressedThisFrame;
+        bool clickPressed = mouse != null && mouse.leftButton.wasPressedThisFrame;
+
+        if (spacePressed || clickPressed)
         {
             Shoot();
         }
@@ -60,12 +75,12 @@ public class PlayerController : MonoBehaviour
             {
                 bulletRb.linearVelocity = firePoint.forward * bulletSpeed;
             }
-            
-            // Optional: Destroy bullet after 3 seconds to keep memory clean
+
+            // Destroy bullet after 3 seconds to keep memory clean
             Destroy(bullet, 3f);
         }
     }
-    
+
     // Method to handle taking damage from NPCs later
     public void TakeDamage(int damage)
     {
