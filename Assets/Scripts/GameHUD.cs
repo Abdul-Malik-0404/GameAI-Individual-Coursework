@@ -1,0 +1,319 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+// Any NPC that should get a label above its head implements this.
+// GridBot implements it now; the NavMesh bot will implement it too, so the HUD works for both.
+public interface IHUDTarget
+{
+    string Id { get; }              
+    string StateName { get; }       
+    Color StateColor { get; }       // Colour for the state text
+    float CurrentHealth { get; }
+    float MaxHealth { get; }
+    Transform transform { get; }    // Already provided by every MonoBehaviour
+}
+
+public class GameHUD : MonoBehaviour
+{
+    [Header("Layout")]
+    [Tooltip("Scales all text and bars. 1 = normal size; it also adjusts to the Game view's height.")]
+    public float uiScale = 1f;
+    [Tooltip("How far above the NPC's centre its label sits, in metres.")]
+    public float npcLabelHeight = 2.2f;
+
+    [Header("Damage Numbers")]
+    [Tooltip("Seconds a damage number stays on screen.")]
+    public float popupDuration = 1f;
+    [Tooltip("How fast damage numbers float upwards, in metres per second.")]
+    public float popupRiseSpeed = 1.5f;
+
+    // One floating damage number
+    private class Popup
+    {
+        public Vector3 worldPosition;
+        public string text;
+        public Color color;
+        public float age;
+    }
+
+    // What we remember about each NPC between frames, to spot health going down
+    private class TrackedNPC
+    {
+        public MonoBehaviour component;  // Used to check whether the NPC still exists
+        public IHUDTarget target;        // Used to read its ID, state and health
+        public string id;
+        public float lastHealth;
+        public Vector3 lastPosition;
+        public bool deathShown;
+    }
+
+    private PlayerController player;
+    private int playerMaxHealth = 100;
+    private int lastPlayerHealth;
+
+    private readonly List<TrackedNPC> trackedNPCs = new List<TrackedNPC>();
+    private readonly List<Popup> popups = new List<Popup>();
+    private float refreshTimer;
+
+    private GUIStyle idStyle;
+    private GUIStyle stateStyle;
+    private GUIStyle barTextStyle;
+    private GUIStyle popupStyle;
+    private GUIStyle titleStyle;
+    private GUIStyle bigStyle;
+
+    void Start()
+    {
+        player = FindFirstObjectByType<PlayerController>();
+        if (player != null)
+        {
+            // PlayerController has no max health field, so its starting health counts as the max
+            playerMaxHealth = Mathf.Max(1, player.healthPoints);
+            lastPlayerHealth = player.healthPoints;
+        }
+
+        RefreshNPCList();
+    }
+
+    void Update()
+    {
+        // Look for NPCs added to the scene (twice a second is plenty)
+        refreshTimer -= Time.deltaTime;
+        if (refreshTimer <= 0f)
+        {
+            refreshTimer = 0.5f;
+            RefreshNPCList();
+        }
+
+        // Player: health went down since last frame? Show the damage
+        if (player != null)
+        {
+            int health = player.healthPoints;
+            if (health < lastPlayerHealth)
+                AddPopup(player.transform.position + Vector3.up * 1.5f, "-" + (lastPlayerHealth - health), new Color(1f, 0.3f, 0.3f));
+            lastPlayerHealth = health;
+        }
+
+        // NPCs: same check, plus deaths
+        for (int i = trackedNPCs.Count - 1; i >= 0; i--)
+        {
+            TrackedNPC tracked = trackedNPCs[i];
+
+            // The NPC was destroyed since last frame
+            if (tracked.component == null)
+            {
+                if (!tracked.deathShown)
+                    AddPopup(tracked.lastPosition + Vector3.up * npcLabelHeight, tracked.id + " DEFEATED", Color.red);
+                trackedNPCs.RemoveAt(i);
+                continue;
+            }
+
+            float health = tracked.target.CurrentHealth;
+            float lost = tracked.lastHealth - health;
+
+            // Only count real drops (healing makes health go UP, which we ignore)
+            if (lost >= 0.5f)
+                AddPopup(tracked.target.transform.position + Vector3.up * 1.5f, "-" + Mathf.RoundToInt(lost), new Color(1f, 0.85f, 0.2f));
+
+            if (health <= 0f && !tracked.deathShown)
+            {
+                AddPopup(tracked.target.transform.position + Vector3.up * npcLabelHeight, tracked.id + " DEFEATED", Color.red);
+                tracked.deathShown = true;
+            }
+
+            tracked.id = tracked.target.Id;
+            tracked.lastHealth = health;
+            tracked.lastPosition = tracked.target.transform.position;
+        }
+
+        // Age the damage numbers and remove old ones
+        for (int i = popups.Count - 1; i >= 0; i--)
+        {
+            popups[i].age += Time.deltaTime;
+            if (popups[i].age >= popupDuration)
+                popups.RemoveAt(i);
+        }
+    }
+
+    // Finds every script in the scene that implements IHUDTarget (GridBot, and the NavMesh bot later)
+    void RefreshNPCList()
+    {
+        MonoBehaviour[] all = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
+
+        foreach (MonoBehaviour component in all)
+        {
+            IHUDTarget target = component as IHUDTarget;
+            if (target == null) continue;
+
+            bool alreadyTracked = false;
+            foreach (TrackedNPC tracked in trackedNPCs)
+            {
+                if (tracked.component == component)
+                {
+                    alreadyTracked = true;
+                    break;
+                }
+            }
+
+            if (!alreadyTracked)
+            {
+                TrackedNPC newNPC = new TrackedNPC();
+                newNPC.component = component;
+                newNPC.target = target;
+                newNPC.id = target.Id;
+                newNPC.lastHealth = target.CurrentHealth;
+                newNPC.lastPosition = component.transform.position;
+                trackedNPCs.Add(newNPC);
+            }
+        }
+    }
+
+    void AddPopup(Vector3 worldPosition, string text, Color color)
+    {
+        Popup popup = new Popup();
+        // Small random sideways offset so several numbers in a row don't sit on top of each other
+        popup.worldPosition = worldPosition + new Vector3(Random.Range(-0.3f, 0.3f), 0f, Random.Range(-0.3f, 0.3f));
+        popup.text = text;
+        popup.color = color;
+        popup.age = 0f;
+        popups.Add(popup);
+    }
+
+    void OnGUI()
+    {
+        // OnGUI runs several times a frame; only the Repaint pass actually draws
+        if (Event.current.type != EventType.Repaint) return;
+
+        Camera cam = Camera.main;
+        if (cam == null) return; // Needs a camera tagged "MainCamera"
+
+        float s = uiScale * Screen.height / 1080f; // Scale everything with the Game view height
+        PrepareStyles(s);
+
+        // Above each NPC: ID, state, health bar
+        foreach (TrackedNPC tracked in trackedNPCs)
+        {
+            if (tracked.component == null) continue;
+            IHUDTarget npc = tracked.target;
+
+            Vector3 screen = cam.WorldToScreenPoint(npc.transform.position + Vector3.up * npcLabelHeight);
+            if (screen.z <= 0f) continue; // Behind the camera
+
+            // Screen positions start at the bottom-left; GUI positions start at the top-left
+            float x = screen.x;
+            float y = Screen.height - screen.y;
+
+            float barWidth = 130f * s;
+            float barHeight = 18f * s;
+
+            DrawShadowLabel(new Rect(x - 100f * s, y - 66f * s, 200f * s, 20f * s), npc.Id, Color.white, idStyle);
+            DrawShadowLabel(new Rect(x - 100f * s, y - 46f * s, 200f * s, 24f * s), npc.StateName.ToUpper(), npc.StateColor, stateStyle);
+
+            float health = Mathf.Max(0f, npc.CurrentHealth);
+            float maxHealth = Mathf.Max(1f, npc.MaxHealth);
+            string healthText = Mathf.CeilToInt(health) + " / " + Mathf.RoundToInt(maxHealth);
+            DrawBar(new Rect(x - barWidth / 2f, y - 20f * s, barWidth, barHeight), health / maxHealth, healthText);
+        }
+
+        // Player health
+        if (player != null)
+        {
+            int health = Mathf.Max(0, player.healthPoints);
+
+            DrawShadowLabel(new Rect(20f * s, 14f * s, 300f * s, 26f * s), "PLAYER", Color.white, titleStyle);
+            DrawBar(new Rect(20f * s, 42f * s, 280f * s, 26f * s), health / (float)playerMaxHealth,
+                    health + " / " + playerMaxHealth);
+
+            if (player.healthPoints <= 0)
+            {
+                DrawShadowLabel(new Rect(0f, Screen.height * 0.4f, Screen.width, 80f * s),
+                                "YOU WERE DEFEATED", Color.red, bigStyle);
+            }
+        }
+
+        // Floating damage numbers
+        foreach (Popup popup in popups)
+        {
+            Vector3 world = popup.worldPosition + Vector3.up * popupRiseSpeed * popup.age;
+            Vector3 screen = cam.WorldToScreenPoint(world);
+            if (screen.z <= 0f) continue;
+
+            Color color = popup.color;
+            color.a = 1f - popup.age / popupDuration; // Fade out
+
+            DrawShadowLabel(new Rect(screen.x - 150f * s, Screen.height - screen.y - 16f * s, 300f * s, 32f * s),
+                            popup.text, color, popupStyle);
+        }
+    }
+
+    // Health bar (green -> yellow -> red), text on top
+    void DrawBar(Rect rect, float fraction, string text)
+    {
+        fraction = Mathf.Clamp01(fraction);
+        Color oldColor = GUI.color;
+
+        GUI.color = new Color(0f, 0f, 0f, 0.65f);
+        GUI.DrawTexture(rect, Texture2D.whiteTexture);
+
+        GUI.color = HealthColor(fraction);
+        float border = 2f;
+        GUI.DrawTexture(new Rect(rect.x + border, rect.y + border, (rect.width - border * 2f) * fraction, rect.height - border * 2f),
+                        Texture2D.whiteTexture);
+
+        GUI.color = oldColor;
+        DrawShadowLabel(rect, text, Color.white, barTextStyle);
+    }
+
+    // Text with a dark drop shadow, so it stays readable over any background
+    void DrawShadowLabel(Rect rect, string text, Color color, GUIStyle style)
+    {
+        Color oldColor = GUI.color;
+
+        GUI.color = new Color(0f, 0f, 0f, color.a * 0.8f);
+        GUI.Label(new Rect(rect.x + 1.5f, rect.y + 1.5f, rect.width, rect.height), text, style);
+
+        GUI.color = color;
+        GUI.Label(rect, text, style);
+
+        GUI.color = oldColor;
+    }
+
+    Color HealthColor(float fraction)
+    {
+        if (fraction > 0.5f)
+            return Color.Lerp(Color.yellow, Color.green, (fraction - 0.5f) * 2f);
+        return Color.Lerp(Color.red, Color.yellow, fraction * 2f);
+    }
+
+    void PrepareStyles(float s)
+    {
+        if (stateStyle == null)
+        {
+            idStyle = MakeStyle(TextAnchor.MiddleCenter);
+            stateStyle = MakeStyle(TextAnchor.MiddleCenter);
+            barTextStyle = MakeStyle(TextAnchor.MiddleCenter);
+            popupStyle = MakeStyle(TextAnchor.MiddleCenter);
+            titleStyle = MakeStyle(TextAnchor.MiddleLeft);
+            bigStyle = MakeStyle(TextAnchor.MiddleCenter);
+        }
+
+        // Font sizes follow the scale, so the HUD looks the same at any resolution
+        idStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(13f * s));
+        stateStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(15f * s));
+        barTextStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(12f * s));
+        popupStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(22f * s));
+        titleStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(16f * s));
+        bigStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(48f * s));
+    }
+
+    GUIStyle MakeStyle(TextAnchor alignment)
+    {
+        GUIStyle style = new GUIStyle(GUI.skin.label);
+        style.alignment = alignment;
+        style.fontStyle = FontStyle.Bold;
+        style.wordWrap = false;
+        style.clipping = TextClipping.Overflow;
+        style.normal.textColor = Color.white; // tints this to the colour we want
+        return style;
+    }
+}
