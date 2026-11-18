@@ -790,6 +790,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Gridbot
   currentState: 0
+  npcId: NPC1
   target: {fileID: 741451140}
   bulletPrefab: {fileID: 5228631189014024279, guid: c8a94295d3d2dd1a1ae03ab3f01e44f6, type: 3}
   firePoint: {fileID: 149151830}
@@ -1075,8 +1076,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 25, y: 45, z: 25}
+  m_LocalRotation: {x: 0.7071068, y: -0, z: -0, w: 0.7071068}
+  m_LocalPosition: {x: 25, y: 44.5, z: 25}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1413,12 +1414,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 377631938}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fac623c0b5527bab38361bdb027df82a, type: 3}
+  m_Script: {fileID: 11500000, guid: 8825a55dbfd2d5973bb24bd53e99fddb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::NavMeshController
-  target: {fileID: 741451140}
-  turnSpeed: 10
-  pathUpdateInterval: 0.3
+  m_EditorClassIdentifier: Assembly-CSharp::TankerBot
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -2117,6 +2115,8 @@ MonoBehaviour:
   bulletPrefab: {fileID: 5228631189014024279, guid: c8a94295d3d2dd1a1ae03ab3f01e44f6, type: 3}
   firePoint: {fileID: 1997378690}
   bulletSpeed: 15
+  respawnDelay: 3
+  spawnProtectionTime: 2
 --- !u!54 &741451142
 Rigidbody:
   m_ObjectHideFlags: 0

@@ -1,9 +1,26 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// NPC BRAIN #1 - "GridBot"
+// A Finite State Machine (enum + switch) that moves using the custom A* grid.
+// Put this on the NPC INSTEAD of NPCController. The NPC also needs a Collider.
+//
+// States and what makes it change state:
+//   PATROL      -> Pursue      : sees the player (inside its view cone, or very close)
+//               -> Investigate : gets shot without seeing who did it, or HEARS a gunshot
+//                                (15 m in the open, only 7.5 m through a wall - walls muffle sound)
+//   INVESTIGATE -> Pursue      : sees the player
+//               -> Patrol      : searched the spot (and maybe nearby spots) and found nothing, or timed out
+//   PURSUE      -> Attack      : player within attack range and in line of sight
+//               -> Investigate : lost sight of the player (goes to where it predicts the player went)
+//   ATTACK      -> Pursue      : player moved out of range
+//               -> Investigate : lost sight of the player
+//   ANY         -> Retreat     : health drops to 20% or less
+//   RETREAT     -> Investigate : healed back up to 60% while hidden (goes back to the last known position)
 [RequireComponent(typeof(Rigidbody))]
 public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
 {
+    // ============================ FSM ============================
     public enum BotState { Patrol, Investigate, Pursue, Attack, Retreat }
 
     [Header("State (watch this change in Play mode)")]
@@ -41,6 +58,10 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     public float loseSightDelay = 0.5f;
     [Tooltip("When the player is lost, guess where they went: last position + velocity x this many seconds.")]
     public float predictionTime = 1f;
+    [Tooltip("Hears the player's gunshots within this distance when nothing is in the way.")]
+    public float hearingRadius = 15f;
+    [Tooltip("Walls muffle sound: through a wall the hearing range is multiplied by this (0.5 = half).")]
+    [Range(0f, 1f)] public float wallMuffling = 0.5f;
 
     [Header("Movement")]
     public float patrolSpeed = 2.5f;    // Patrol and Investigate
@@ -87,8 +108,10 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     [Header("Debug")]
     public bool logStateChanges = true;
 
+    // ======================= Private data =======================
     private Rigidbody rb;
     private Rigidbody targetRb;
+    private PlayerController targetPlayer;  // Used to ignore the player while they are dead
     private Pathfinding pathfinding;
     private GridManager grid;
     private bool initialized;
@@ -149,6 +172,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
+    // ===================== HUD (IHUDTarget) =====================
     // GameHUD reads these to draw the label above this NPC.
     public string Id { get { return npcId; } }
     public string StateName { get { return currentState.ToString(); } }
@@ -165,6 +189,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         nextAutoId = 1;
     }
 
+    // ========================= Unity =========================
     void Awake()
     {
         if (string.IsNullOrEmpty(npcId))
@@ -172,6 +197,16 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
             npcId = "GridBot " + nextAutoId;
             nextAutoId++;
         }
+    }
+
+    void OnEnable()
+    {
+        PlayerController.OnShotFired += HearGunshot;   // Start listening for the player's gunshots
+    }
+
+    void OnDisable()
+    {
+        PlayerController.OnShotFired -= HearGunshot;   // Stop listening (always undo a subscription)
     }
 
     void Start()
@@ -186,7 +221,11 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
             GameObject player = GameObject.FindGameObjectWithTag("Player");
             if (player != null) target = player.transform;
         }
-        if (target != null) targetRb = target.GetComponent<Rigidbody>();
+        if (target != null)
+        {
+            targetRb = target.GetComponent<Rigidbody>();
+            targetPlayer = target.GetComponent<PlayerController>();
+        }
 
         pathfinding = Pathfinding.Instance;
         if (pathfinding == null)
@@ -220,17 +259,18 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         hasFaceTarget = false;
         isSpinning = false;
 
+        // ---- Senses ----
         // Calm (Patrol/Investigate): only sees inside its view cone.
         // Alert (Pursue/Attack/Retreat): keeps track of the player all around, as long as no wall is in the way.
         bool alert = currentState == BotState.Pursue || currentState == BotState.Attack || currentState == BotState.Retreat;
         seesPlayer = CanSeePlayer(!alert);
         if (seesPlayer) RememberPlayer();
 
-        // Global transition: low health overrides every other state
+        // ---- Global transition: low health overrides every other state ----
         if (currentState != BotState.Retreat && HealthPercent <= retreatHealthPercent)
             ChangeState(BotState.Retreat);
 
-        // Run the current state
+        // ---- Run the current state ----
         switch (currentState)
         {
             case BotState.Patrol:      UpdatePatrol();      break;
@@ -271,6 +311,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
+    // ===================== State changes =====================
     void ChangeState(BotState newState)
     {
         if (logStateChanges && newState != currentState)
@@ -313,7 +354,9 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         ChangeState(BotState.Investigate);
     }
 
-    // PATROL: walk between random patrol points, pausing a random time at each
+    // ======================== States ========================
+
+    // 1. PATROL: walk between random patrol points, pausing a random time at each
     void UpdatePatrol()
     {
         if (seesPlayer)
@@ -338,7 +381,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
             patrolWaitTimer = Mathf.Max(0.1f, Random.Range(minPatrolWait, maxPatrolWait));
     }
 
-    // INVESTIGATE: go to a point of interest (shot origin / last known position), then scan the area
+    // 2. INVESTIGATE: go to a point of interest (shot origin / last known position), then scan the area
     void UpdateInvestigate()
     {
         if (seesPlayer)
@@ -383,7 +426,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // PURSUE: chase the player with A* while it can see them
+    // 3. PURSUE: chase the player with A* while it can see them
     void UpdatePursue()
     {
         // Lost sight for more than a moment: go to where it predicts the player went
@@ -410,7 +453,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // ATTACK: stand still, face the player and shoot
+    // 4. ATTACK: stand still, face the player and shoot
     void UpdateAttack()
     {
         if (!seesPlayer)
@@ -445,7 +488,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // RETREAT: run to the best hiding spot, heal while hidden, come back when healthy
+    // 5. RETREAT: run to the best hiding spot, heal while hidden, come back when healthy
     void UpdateRetreat()
     {
         // Heal slowly, but only while the player can't see it
@@ -460,7 +503,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
             return;
         }
 
-        // Check the hiding spot is still hidden from the threat (the player may have moved)
+        // Every so often, check the hiding spot is still hidden from the threat (the player may have moved)
         coverCheckTimer -= Time.deltaTime;
         if (coverCheckTimer <= 0f)
         {
@@ -483,6 +526,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
+    // ======================== Damage ========================
     public void TakeDamage(int damage, Vector3 sourcePosition)
     {
         if (isDead) return;
@@ -527,9 +571,11 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         Destroy(gameObject);
     }
 
+    // ===================== Senses & memory =====================
     bool CanSeePlayer(bool useViewCone)
     {
         if (target == null) return false;
+        if (targetPlayer != null && targetPlayer.IsDead) return false; // Dead player waiting to respawn
 
         Vector3 toPlayer = target.position - transform.position;
         toPlayer.y = 0f;
@@ -555,6 +601,41 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         hasThreat = true;
     }
 
+    // Called by PlayerController every time the player fires
+    void HearGunshot(Vector3 shotPosition)
+    {
+        if (isDead || !initialized) return;
+        if (targetPlayer != null && targetPlayer.IsDead) return;
+
+        // Walls muffle sound: through a wall it only hears shots within a shorter range
+        float range = hearingRadius;
+        if (!pathfinding.HasLineOfSight(transform.position, shotPosition))
+            range *= wallMuffling;
+        if (FlatDistance(transform.position, shotPosition) > range) return;
+
+        // The shot gives away roughly where the player is (and where the danger is, for Retreat's cover checks)
+        lastThreatPosition = shotPosition;
+        hasThreat = true;
+        if (!seesPlayer)
+        {
+            lastKnownPlayerPosition = shotPosition;
+            lastKnownPlayerVelocity = Vector3.zero; // Sound gives a place, not a direction
+            hasPlayerMemory = true;
+        }
+
+        switch (currentState)
+        {
+            case BotState.Patrol:
+            case BotState.Investigate:
+                // Heard a shot but can't see the shooter: go and check where it came from
+                if (!seesPlayer) StartInvestigating(shotPosition);
+                break;
+
+            // Pursue / Attack: memory was updated above, so if it loses sight it heads for the shot.
+            // Retreat: the threat position was updated above, so the next cover check hides from the shot.
+        }
+    }
+
     // Where the player probably is now: last seen position, pushed forward along the way they were moving
     Vector3 PredictedPlayerPosition()
     {
@@ -563,9 +644,11 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         return lastKnownPlayerPosition + velocity * predictionTime;
     }
 
+    // Can the player see this bot? (Used for healing only while hidden.)
     bool IsExposedToPlayer()
     {
         if (target == null) return false;
+        if (targetPlayer != null && targetPlayer.IsDead) return false;
         return FlatDistance(transform.position, target.position) <= viewDistance
             && pathfinding.HasLineOfSight(target.position, transform.position);
     }
@@ -575,6 +658,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         return !pathfinding.HasLineOfSight(viewer, spot);
     }
 
+    // ===================== Decision helpers =====================
     void PickNextPatrolPoint()
     {
         ClearDestination();
@@ -716,6 +800,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         Destroy(bullet, 3f);
     }
 
+    // ===================== A* path following =====================
     // Call every frame the bot should be walking. Only re-runs A* when needed:
     // a new destination, the destination moved (and the refresh timer ran out), or the last search failed.
     void MoveTowards(Vector3 destination)
@@ -779,7 +864,8 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         return Vector3.Distance(a, b);
     }
 
-    // Always coloured ball above the head = current state, white line = current A* path.
+    // ========================= Gizmos =========================
+    // Always: coloured ball above the head = current state, white line = current A* path.
     void OnDrawGizmos()
     {
         Gizmos.color = GetStateColor(currentState);
@@ -809,6 +895,11 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
 
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, attackRange);
+
+        // Hearing: outer circle = in the open, inner circle = through a wall
+        Gizmos.color = new Color(0.5f, 0.5f, 1f);
+        Gizmos.DrawWireSphere(transform.position, hearingRadius);
+        Gizmos.DrawWireSphere(transform.position, hearingRadius * wallMuffling);
 
         if (!Application.isPlaying) return;
 
