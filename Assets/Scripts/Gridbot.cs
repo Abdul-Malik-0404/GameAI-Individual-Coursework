@@ -2,12 +2,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody))]
-public class GridBot : MonoBehaviour, IDamageable
+public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
 {
     public enum BotState { Patrol, Investigate, Pursue, Attack, Retreat }
 
     [Header("State (watch this change in Play mode)")]
     public BotState currentState = BotState.Patrol;
+
+    [Header("Identity")]
+    [Tooltip("Name shown above the NPC in game. Leave empty to number automatically (GridBot 1, GridBot 2, ...).")]
+    public string npcId = "";
 
     [Header("References")]
     [Tooltip("Who to fight. If left empty, the object tagged 'Player' is used.")]
@@ -142,6 +146,31 @@ public class GridBot : MonoBehaviour, IDamageable
             if (seesPlayer) return target.position;
             if (hasThreat) return lastThreatPosition;
             return transform.position + transform.forward; // Unknown: assume it's in front
+        }
+    }
+
+    // GameHUD reads these to draw the label above this NPC.
+    public string Id { get { return npcId; } }
+    public string StateName { get { return currentState.ToString(); } }
+    public Color StateColor { get { return GetStateColor(currentState); } }
+    public float CurrentHealth { get { return currentHealth; } }
+    public float MaxHealth { get { return maxHealth; } }
+
+    // Counter for automatic IDs. Reset each time Play starts, so numbering always begins at 1.
+    private static int nextAutoId = 1;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetAutoId()
+    {
+        nextAutoId = 1;
+    }
+
+    void Awake()
+    {
+        if (string.IsNullOrEmpty(npcId))
+        {
+            npcId = "GridBot " + nextAutoId;
+            nextAutoId++;
         }
     }
 
@@ -431,7 +460,7 @@ public class GridBot : MonoBehaviour, IDamageable
             return;
         }
 
-        // Every so often, check the hiding spot is still hidden from the threat (the player may have moved)
+        // Check the hiding spot is still hidden from the threat (the player may have moved)
         coverCheckTimer -= Time.deltaTime;
         if (coverCheckTimer <= 0f)
         {
@@ -534,7 +563,6 @@ public class GridBot : MonoBehaviour, IDamageable
         return lastKnownPlayerPosition + velocity * predictionTime;
     }
 
-    // Can the player see this bot? (Used for healing only while hidden.)
     bool IsExposedToPlayer()
     {
         if (target == null) return false;
@@ -584,6 +612,10 @@ public class GridBot : MonoBehaviour, IDamageable
     }
 
     // Scans the grid around the bot for the best place to hide from the threat.
+    //   Priority 1: a spot the threat CAN'T see (cover). Prefers close spots (less time exposed while running),
+    //               then spots further from the threat.
+    //   Priority 2: if there's no cover nearby, the open spot furthest from the threat.
+    // Spots that mean running towards the threat are never chosen.
     Vector3 FindCoverPoint()
     {
         Vector3 threat = ThreatPosition;
@@ -747,10 +779,10 @@ public class GridBot : MonoBehaviour, IDamageable
         return Vector3.Distance(a, b);
     }
 
-    // Always: coloured ball above the head = current state, white line = current A* path.
+    // Always coloured ball above the head = current state, white line = current A* path.
     void OnDrawGizmos()
     {
-        Gizmos.color = StateColor(currentState);
+        Gizmos.color = GetStateColor(currentState);
         Gizmos.DrawSphere(transform.position + Vector3.up * 2f, 0.25f);
 
         if (path != null)
@@ -797,7 +829,8 @@ public class GridBot : MonoBehaviour, IDamageable
         }
     }
 
-    Color StateColor(BotState state)
+    // Used by the Scene-view gizmo and by the in-game HUD label
+    Color GetStateColor(BotState state)
     {
         switch (state)
         {

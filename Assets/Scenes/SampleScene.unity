@@ -789,6 +789,46 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 21ab75b8fb66e63db9608aae2364ff1d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Gridbot
+  currentState: 0
+  target: {fileID: 741451140}
+  bulletPrefab: {fileID: 5228631189014024279, guid: c8a94295d3d2dd1a1ae03ab3f01e44f6, type: 3}
+  firePoint: {fileID: 149151830}
+  maxHealth: 100
+  currentHealth: 100
+  retreatHealthPercent: 0.2
+  recoverHealthPercent: 0.6
+  healthRegenPerSecond: 5
+  viewDistance: 15
+  viewAngle: 110
+  proximityRadius: 2.5
+  loseSightDelay: 0.5
+  predictionTime: 1
+  patrolSpeed: 2.5
+  chaseSpeed: 4.5
+  turnSpeed: 8
+  pathUpdateInterval: 0.3
+  waypointReachedDistance: 0.2
+  patrolPoints: []
+  wanderRadius: 8
+  minPatrolWait: 1
+  maxPatrolWait: 3
+  patrolLegTimeout: 15
+  lookAroundDuration: 3
+  lookAroundSpeed: 120
+  searchAgainChance: 0.5
+  maxExtraSearches: 2
+  searchRadius: 4
+  investigateTimeout: 25
+  attackRange: 8
+  attackRangeBuffer: 1.5
+  fireCooldown: 0.8
+  bulletSpeed: 15
+  bulletDamage: 10
+  aimSpread: 4
+  coverSearchRadius: 10
+  minDistanceFromThreat: 5
+  coverCheckInterval: 0.5
+  logStateChanges: 1
 --- !u!1 &285603015
 GameObject:
   m_ObjectHideFlags: 0
@@ -901,6 +941,54 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 285603015}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1 &321398769
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 321398771}
+  - component: {fileID: 321398770}
+  m_Layer: 0
+  m_Name: HUD
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &321398770
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 321398769}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5cd92f632713e8e28ab96f14fbd6b14a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GameHUD
+  uiScale: 1
+  npcLabelHeight: 2.2
+  popupDuration: 1
+  popupRiseSpeed: 1.5
+--- !u!4 &321398771
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 321398769}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 26.37576, y: 0, z: 23.80146}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
@@ -1245,7 +1333,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: cc9ee62284f1be95bb878cbdf515456b, type: 2}
+  - {fileID: 2100000, guid: 27da9fe35bb045a309d51a4989b3c52e, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -4916,3 +5004,4 @@ SceneRoots:
   - {fileID: 377631943}
   - {fileID: 1429034282}
   - {fileID: 1638999767}
+  - {fileID: 321398771}
