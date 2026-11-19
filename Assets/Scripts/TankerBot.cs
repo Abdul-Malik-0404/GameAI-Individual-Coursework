@@ -1,10 +1,37 @@
 using UnityEngine;
 using UnityEngine.AI;
 
+// NPC BRAIN #2 - "TANKER"
+// A slow, heavily armoured NPC that guards a post. Moves with Unity's NavMesh
+// (the NavMeshAgent plans the path, the Rigidbody does the moving - the same way GridBot and the player move).
+// Put this on the NavMesh NPC.
+//
+// How it differs from GridBot (A*):
+//   GridBot : patrols, sees with a view cone, fires single aimed shots, FLEES and heals at low health.
+//   Tanker  : guards one post, HEARS gunshots through walls, has an ARMOURED FRONT, fires shotgun
+//             volleys, CHARGES and rams, is STUNNED after a charge (its weak moment), and becomes
+//             ENRAGED at low health instead of fleeing.
+//
+// States and what makes it change state:
+//   GUARD   -> Chase   : sees the player
+//           -> Search  : hears a gunshot nearby, or is shot without seeing the shooter
+//   SEARCH  -> Chase   : sees the player
+//           -> Guard   : reached the spot, looked around, found nothing (walks back to its post)
+//   CHASE   -> Bombard : player within bombard range and visible
+//           -> Charge  : charge ready + player in charge range + clear straight line + dice roll
+//                        (guaranteed if the player keeps it out of range for a few seconds = kiting)
+//           -> Search  : lost sight of the player (goes to their last known position)
+//   BOMBARD -> Chase   : player moved out of range
+//           -> Charge  : same rule as in Chase
+//           -> Search  : lost sight of the player
+//   CHARGE  -> Recover : rammed the player, crashed into a wall, or ran out of charge time
+//   RECOVER -> Chase / Bombard / Search : once the stun wears off (longer after crashing into a wall)
+// At 35% health it becomes ENRAGED for the rest of its life: faster, fires faster, charges more often.
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(Rigidbody))]
 public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
 {
+    // ============================ FSM ============================
     public enum TankerState { Guard, Search, Chase, Bombard, Charge, Recover }
 
     [Header("State (watch this change in Play mode)")]
@@ -77,6 +104,10 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
     public float bulletSpeed = 12f;
     public int bulletDamage = 8;
 
+    [Header("Damage Model (Option A)")]
+    [Tooltip("Tanker fires scattered pellets: many grazes, rare crits. Average = 0.9 x base damage. Also used for the ram.")]
+    public DamageProfile damageProfile = new DamageProfile(0.4f, 0.5f, 0.1f, 2f);
+
     [Header("Charge")]
     public float chargeMinRange = 4f;
     public float chargeMaxRange = 14f;
@@ -105,6 +136,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
     [Header("Debug")]
     public bool logStateChanges = true;
 
+    // ======================= Private data =======================
     private NavMeshAgent agent;
     private Rigidbody rb;
     private PlayerController targetPlayer;
@@ -124,7 +156,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
 
     // Senses and memory
     private bool seesPlayer;
-    private bool hasPlayerMemory;
     private Vector3 lastKnownPlayerPosition;
     private float lastSeenTime = -999f;
 
@@ -150,26 +181,22 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         get { return currentHealth / maxHealth; }
     }
 
+    // ===================== HUD (IHUDTarget) =====================
     public string Id { get { return npcId; } }
     public string StateName { get { return isEnraged ? currentState + " (Enraged)" : currentState.ToString(); } }
     public Color StateColor { get { return GetStateColor(currentState); } }
     public float CurrentHealth { get { return currentHealth; } }
     public float MaxHealth { get { return maxHealth; } }
 
-    private static int nextAutoId = 1;
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-    static void ResetAutoId()
-    {
-        nextAutoId = 1;
-    }
-
+    // ========================= Unity =========================
     void Awake()
     {
+        // No ID typed in: number the Tankers in scene order (Tanker 1, Tanker 2, ...).
+        // Works the same after the level restarts, unlike a counter that keeps counting.
         if (string.IsNullOrEmpty(npcId))
         {
-            npcId = "Tanker " + nextAutoId;
-            nextAutoId++;
+            TankerBot[] all = FindObjectsByType<TankerBot>(FindObjectsSortMode.InstanceID);
+            npcId = "Tanker " + (System.Array.IndexOf(all, this) + 1);
         }
     }
 
@@ -188,7 +215,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         agent = GetComponent<NavMeshAgent>();
         rb = GetComponent<Rigidbody>();
 
-        // The agent only plans the path. The Rigidbody does the actual moving.
+        // The agent only PLANS the path. The Rigidbody does the actual moving.
         agent.updatePosition = false;
         agent.updateRotation = false;
         rb.isKinematic = false;
@@ -196,6 +223,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
 
         currentHealth = maxHealth;
 
+        // No Obstacle Mask set: use the SAME wall layer as the A* grid, so both NPC types agree on what a wall is
         if (obstacleMask.value == 0 && Pathfinding.Instance != null)
         {
             GridManager grid = Pathfinding.Instance.GetComponent<GridManager>();
@@ -238,6 +266,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         isRushing = false;
         hasFaceTarget = false;
 
+        // ---- Senses ----
         // Calm (Guard/Search): only sees inside its view cone. In a fight: tracks the player all around.
         bool alert = currentState != TankerState.Guard && currentState != TankerState.Search;
         seesPlayer = CanSeePlayer(!alert);
@@ -245,16 +274,15 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         {
             lastKnownPlayerPosition = target.position;
             lastSeenTime = Time.time;
-            hasPlayerMemory = true;
         }
 
-        // Low health: enrage (a one-way phase change, instead of fleeing like GridBot)
+        // ---- Low health: enrage (a one-way phase change, instead of fleeing like GridBot) ----
         if (!isEnraged && HealthPercent <= enrageHealthPercent)
             Enrage();
 
         agent.speed = CurrentMoveSpeed();
 
-        // Run the current state
+        // ---- Run the current state ----
         switch (currentState)
         {
             case TankerState.Guard:   UpdateGuard();   break;
@@ -270,7 +298,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
     {
         if (isDead || agent == null) return;
 
-        // Charging: rush in a straight line, ignoring the NavMesh
+        // ---- Charging: rush in a straight line, ignoring the NavMesh ----
         if (isRushing && currentState == TankerState.Charge)
         {
             rushTime += Time.fixedDeltaTime;
@@ -298,7 +326,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
             return; // No turning mid-charge
         }
 
-        // Normal movement: follow the NavMesh path
+        // ---- Normal movement: follow the NavMesh path ----
         Vector3 move = Vector3.zero;
         if (wantsToMove && agent.hasPath && !HasArrived())
         {
@@ -327,13 +355,17 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         PlayerController player = collision.collider.GetComponentInParent<PlayerController>();
         if (player == null) return;
 
-        player.TakeDamage(ramDamage);
+        // Option A: the ram's damage is rolled too
+        string hitType;
+        int rolledDamage = damageProfile.Roll(ramDamage, npcId + " ram", out hitType);
+        player.TakeDamage(rolledDamage, hitType == "HIT" ? "RAM" : "RAM " + hitType);
         player.ApplyKnockback(chargeDirection * ramKnockback, 0.35f); // Flat push: no lift off the floor
 
         if (logStateChanges) Debug.Log(npcId + " rammed the player!");
         StartRecover(recoverTime);
     }
 
+    // ===================== State changes =====================
     void ChangeState(TankerState newState)
     {
         if (logStateChanges && newState != currentState)
@@ -394,8 +426,9 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         Debug.Log(npcId + " is ENRAGED!");
     }
 
+    // ======================== States ========================
 
-    // GUARD: hold the guard post and sweep left and right
+    // 1. GUARD: hold the guard post and sweep left and right
     void UpdateGuard()
     {
         if (seesPlayer)
@@ -621,7 +654,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         if (!seesPlayer)
         {
             lastKnownPlayerPosition = sourcePosition;
-            hasPlayerMemory = true;
 
             if (agent != null && (currentState == TankerState.Guard || currentState == TankerState.Search))
                 StartSearch(sourcePosition);
@@ -639,7 +671,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
     bool CanSeePlayer(bool useViewCone)
     {
         if (target == null) return false;
-        if (targetPlayer != null && targetPlayer.IsDead) return false; // Dead player waiting to respawn
+        if (targetPlayer != null && targetPlayer.IsDead) return false; // Dead: the level is about to restart
 
         Vector3 toPlayer = target.position - transform.position;
         toPlayer.y = 0f;
@@ -665,7 +697,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         if (!seesPlayer)
         {
             lastKnownPlayerPosition = shotPosition;
-            hasPlayerMemory = true;
         }
 
         if (currentState == TankerState.Guard || currentState == TankerState.Search)
@@ -709,6 +740,8 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
             {
                 bulletScript.firedByPlayer = false;
                 bulletScript.damage = bulletDamage;
+                bulletScript.damageProfile = damageProfile; // Option A: each pellet rolls its damage on hit
+                bulletScript.shooterName = npcId;
             }
 
             Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();

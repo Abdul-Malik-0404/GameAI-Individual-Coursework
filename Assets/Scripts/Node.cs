@@ -1,7 +1,6 @@
 using UnityEngine;
 
 // One cell of the pathfinding grid.
-// Pure C# class (NOT a MonoBehaviour), so it is never attached to a GameObject.
 public class Node
 {
     public Vector3 worldPosition;   // Centre of this cell in the 3D world

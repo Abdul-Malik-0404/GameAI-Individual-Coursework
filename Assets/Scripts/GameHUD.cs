@@ -1,18 +1,26 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Any NPC that should get a label above its head implements this.
-// GridBot implements it now; the NavMesh bot will implement it too, so the HUD works for both.
+// Any NPC that should get a label above its head implements this (GridBot and TankerBot do).
 public interface IHUDTarget
 {
-    string Id { get; }              
-    string StateName { get; }       
+    string Id { get; }              // e.g. "GridBot 1"
+    string StateName { get; }       // e.g. "Patrol"
     Color StateColor { get; }       // Colour for the state text
     float CurrentHealth { get; }
     float MaxHealth { get; }
     Transform transform { get; }    // Already provided by every MonoBehaviour
 }
 
+// In-game HUD. Shows, in the Game view and in builds:
+//   - above every NPC (anything implementing IHUDTarget): its ID, current FSM state and a health bar
+//   - top-left: the player's health bar
+//   - floating damage numbers whenever the player or an NPC loses health, and "DEFEATED" when one dies
+//
+// It uses Unity's built-in immediate-mode GUI (OnGUI), so it needs no Canvas, prefabs or fonts.
+// It only READS values, so it never changes how the NPCs or the player behave.
+//
+// Put this on any ONE GameObject in the scene (e.g. an empty object called "HUD").
 public class GameHUD : MonoBehaviour
 {
     [Header("Layout")]
@@ -34,6 +42,7 @@ public class GameHUD : MonoBehaviour
         public string text;
         public Color color;
         public float age;
+        public bool big; // Critical hits are drawn larger
     }
 
     // What we remember about each NPC between frames, to spot health going down
@@ -48,8 +57,6 @@ public class GameHUD : MonoBehaviour
     }
 
     private PlayerController player;
-    private int playerMaxHealth = 100;
-    private int lastPlayerHealth;
 
     private readonly List<TrackedNPC> trackedNPCs = new List<TrackedNPC>();
     private readonly List<Popup> popups = new List<Popup>();
@@ -59,6 +66,7 @@ public class GameHUD : MonoBehaviour
     private GUIStyle stateStyle;
     private GUIStyle barTextStyle;
     private GUIStyle popupStyle;
+    private GUIStyle bigPopupStyle;
     private GUIStyle titleStyle;
     private GUIStyle bigStyle;
 
@@ -67,12 +75,30 @@ public class GameHUD : MonoBehaviour
         player = FindFirstObjectByType<PlayerController>();
         if (player != null)
         {
-            // PlayerController has no max health field, so its starting health counts as the max
-            playerMaxHealth = Mathf.Max(1, player.healthPoints);
-            lastPlayerHealth = player.healthPoints;
+            // The player tells us about every hit, including its type from the damage roll (Option A)
+            player.Damaged += OnPlayerDamaged;
         }
 
         RefreshNPCList();
+    }
+
+    void OnDestroy()
+    {
+        if (player != null) player.Damaged -= OnPlayerDamaged;
+    }
+
+    // Shows e.g. "-10", "CRIT -25", "GRAZE -5" or "RAM -25" over the player
+    void OnPlayerDamaged(int damage, string hitType)
+    {
+        string text = "-" + damage;
+        if (!string.IsNullOrEmpty(hitType) && hitType != "HIT")
+            text = hitType + " " + text;
+
+        Color color = new Color(1f, 0.35f, 0.35f);          // Normal hit: red
+        if (hitType.Contains("CRIT")) color = new Color(1f, 0.1f, 0.6f);   // Critical: hot pink
+        else if (hitType.Contains("GRAZE")) color = new Color(0.8f, 0.8f, 0.8f); // Graze: grey
+
+        AddPopup(player.transform.position + Vector3.up * 1.5f, text, color, hitType.Contains("CRIT"));
     }
 
     void Update()
@@ -85,16 +111,8 @@ public class GameHUD : MonoBehaviour
             RefreshNPCList();
         }
 
-        // Player: health went down since last frame? Show the damage
-        if (player != null)
-        {
-            int health = player.healthPoints;
-            if (health < lastPlayerHealth)
-                AddPopup(player.transform.position + Vector3.up * 1.5f, "-" + (lastPlayerHealth - health), new Color(1f, 0.3f, 0.3f));
-            lastPlayerHealth = health;
-        }
-
-        // NPCs: same check, plus deaths
+        // ---- NPCs: health went down since last frame? Show the damage. Also spot deaths ----
+        // (The player's damage numbers come from its Damaged event instead - see OnPlayerDamaged.)
         for (int i = trackedNPCs.Count - 1; i >= 0; i--)
         {
             TrackedNPC tracked = trackedNPCs[i];
@@ -126,7 +144,7 @@ public class GameHUD : MonoBehaviour
             tracked.lastPosition = tracked.target.transform.position;
         }
 
-        // Age the damage numbers and remove old ones
+        // ---- Age the damage numbers and remove old ones ----
         for (int i = popups.Count - 1; i >= 0; i--)
         {
             popups[i].age += Time.deltaTime;
@@ -135,7 +153,7 @@ public class GameHUD : MonoBehaviour
         }
     }
 
-    // Finds every script in the scene that implements IHUDTarget (GridBot, and the NavMesh bot later)
+    // Finds every script in the scene that implements IHUDTarget (GridBot and TankerBot)
     void RefreshNPCList()
     {
         MonoBehaviour[] all = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
@@ -170,7 +188,13 @@ public class GameHUD : MonoBehaviour
 
     void AddPopup(Vector3 worldPosition, string text, Color color)
     {
+        AddPopup(worldPosition, text, color, false);
+    }
+
+    void AddPopup(Vector3 worldPosition, string text, Color color, bool big)
+    {
         Popup popup = new Popup();
+        popup.big = big;
         // Small random sideways offset so several numbers in a row don't sit on top of each other
         popup.worldPosition = worldPosition + new Vector3(Random.Range(-0.3f, 0.3f), 0f, Random.Range(-0.3f, 0.3f));
         popup.text = text;
@@ -179,6 +203,7 @@ public class GameHUD : MonoBehaviour
         popups.Add(popup);
     }
 
+    // ======================= Drawing =======================
     void OnGUI()
     {
         // OnGUI runs several times a frame; only the Repaint pass actually draws
@@ -190,7 +215,7 @@ public class GameHUD : MonoBehaviour
         float s = uiScale * Screen.height / 1080f; // Scale everything with the Game view height
         PrepareStyles(s);
 
-        // Above each NPC: ID, state, health bar
+        // ---- Above each NPC: ID, state, health bar ----
         foreach (TrackedNPC tracked in trackedNPCs)
         {
             if (tracked.component == null) continue;
@@ -215,23 +240,24 @@ public class GameHUD : MonoBehaviour
             DrawBar(new Rect(x - barWidth / 2f, y - 20f * s, barWidth, barHeight), health / maxHealth, healthText);
         }
 
-        // Player health
+        // ---- Top-left: player health ----
         if (player != null)
         {
             int health = Mathf.Max(0, player.healthPoints);
+            int maxHealth = Mathf.Max(1, player.MaxHealth);
 
             DrawShadowLabel(new Rect(20f * s, 14f * s, 300f * s, 26f * s), "PLAYER", Color.white, titleStyle);
-            DrawBar(new Rect(20f * s, 42f * s, 280f * s, 26f * s), health / (float)playerMaxHealth,
-                    health + " / " + playerMaxHealth);
+            DrawBar(new Rect(20f * s, 42f * s, 280f * s, 26f * s), health / (float)maxHealth,
+                    health + " / " + maxHealth);
 
-            if (player.healthPoints <= 0)
+            if (player.IsDead)
             {
                 DrawShadowLabel(new Rect(0f, Screen.height * 0.4f, Screen.width, 80f * s),
                                 "YOU WERE DEFEATED", Color.red, bigStyle);
             }
         }
 
-        // Floating damage numbers
+        // ---- Floating damage numbers ----
         foreach (Popup popup in popups)
         {
             Vector3 world = popup.worldPosition + Vector3.up * popupRiseSpeed * popup.age;
@@ -241,12 +267,12 @@ public class GameHUD : MonoBehaviour
             Color color = popup.color;
             color.a = 1f - popup.age / popupDuration; // Fade out
 
-            DrawShadowLabel(new Rect(screen.x - 150f * s, Screen.height - screen.y - 16f * s, 300f * s, 32f * s),
-                            popup.text, color, popupStyle);
+            DrawShadowLabel(new Rect(screen.x - 150f * s, Screen.height - screen.y - 20f * s, 300f * s, 40f * s),
+                            popup.text, color, popup.big ? bigPopupStyle : popupStyle);
         }
     }
 
-    // Health bar (green -> yellow -> red), text on top
+    // A health bar: dark background, coloured fill (green -> yellow -> red), text on top
     void DrawBar(Rect rect, float fraction, string text)
     {
         fraction = Mathf.Clamp01(fraction);
@@ -293,6 +319,7 @@ public class GameHUD : MonoBehaviour
             stateStyle = MakeStyle(TextAnchor.MiddleCenter);
             barTextStyle = MakeStyle(TextAnchor.MiddleCenter);
             popupStyle = MakeStyle(TextAnchor.MiddleCenter);
+            bigPopupStyle = MakeStyle(TextAnchor.MiddleCenter);
             titleStyle = MakeStyle(TextAnchor.MiddleLeft);
             bigStyle = MakeStyle(TextAnchor.MiddleCenter);
         }
@@ -302,6 +329,7 @@ public class GameHUD : MonoBehaviour
         stateStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(15f * s));
         barTextStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(12f * s));
         popupStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(22f * s));
+        bigPopupStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(32f * s));
         titleStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(16f * s));
         bigStyle.fontSize = Mathf.Max(8, Mathf.RoundToInt(48f * s));
     }
@@ -313,7 +341,7 @@ public class GameHUD : MonoBehaviour
         style.fontStyle = FontStyle.Bold;
         style.wordWrap = false;
         style.clipping = TextClipping.Overflow;
-        style.normal.textColor = Color.white; // tints this to the colour we want
+        style.normal.textColor = Color.white; // GUI.color tints this to the colour we want
         return style;
     }
 }

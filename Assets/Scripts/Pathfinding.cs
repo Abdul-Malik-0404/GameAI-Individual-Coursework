@@ -37,8 +37,7 @@ public class Pathfinding : MonoBehaviour
         Node startNode = grid.NodeFromWorldPoint(startPosition);
         Node targetNode = grid.NodeFromWorldPoint(targetPosition);
 
-        // If the target stands on a blocked cell (e.g. pressed against a wall),
-        // aim for the closest walkable cell instead.
+        // If the target stands on a blocked cell (e.g. pressed against a wall), aim for the closest walkable cell instead.
         targetNode = grid.GetClosestWalkableNode(targetNode, targetPosition);
         if (targetNode == null)
             return null;
@@ -46,7 +45,7 @@ public class Pathfinding : MonoBehaviour
         List<Node> openList = new List<Node>();         // Nodes waiting to be evaluated
         HashSet<Node> closedList = new HashSet<Node>(); // Nodes already evaluated
 
-        // Step 1: add the starting node to the Open List
+        // Add the starting node to the Open List
         startNode.gCost = 0;
         startNode.hCost = GetDistance(startNode, targetNode);
         startNode.parentNode = null;
@@ -54,7 +53,7 @@ public class Pathfinding : MonoBehaviour
 
         while (openList.Count > 0)
         {
-            // Step 2: find the node with the lowest F-Cost (ties go to the lowest H-Cost)
+            // Find the node with the lowest F-Cost (ties go to the lowest H-Cost)
             Node currentNode = openList[0];
             for (int i = 1; i < openList.Count; i++)
             {
@@ -66,15 +65,15 @@ public class Pathfinding : MonoBehaviour
                 }
             }
 
-            // Step 3: move it from the Open List to the Closed List
+            // Move it from the Open List to the Closed List
             openList.Remove(currentNode);
             closedList.Add(currentNode);
 
-            // Step 4: target check - if we reached the target, retrace the path and finish
+            // Target check - if we reached the target, retrace the path and finish
             if (currentNode == targetNode)
                 return RetracePath(startNode, targetNode);
 
-            // Step 5: neighbour check - look at all 8 surrounding nodes
+            // Neighbour check - look at all 8 surrounding nodes
             foreach (Node neighbour in grid.GetNeighbours(currentNode))
             {
                 // Ignore neighbours that are blocked or already evaluated
@@ -110,8 +109,7 @@ public class Pathfinding : MonoBehaviour
         return !Physics.Linecast(from, to, grid.unwalkableMask);
     }
 
-    // Follows the parentNode chain backwards from the target to the start,
-    // then reverses it so the path runs start -> target.
+    // Follows the parentNode chain backwards from the target to the start, then reverses it so the path runs start -> target.
     private List<Vector3> RetracePath(Node startNode, Node endNode)
     {
         List<Vector3> path = new List<Vector3>();
@@ -147,7 +145,6 @@ public class Pathfinding : MonoBehaviour
         if (from.gridX == to.gridX || from.gridY == to.gridY)
             return false; // Straight step, no corner involved
 
-        return !grid.GetNode(from.gridX, to.gridY).isWalkable
-            || !grid.GetNode(to.gridX, from.gridY).isWalkable;
+        return !grid.GetNode(from.gridX, to.gridY).isWalkable || !grid.GetNode(to.gridX, from.gridY).isWalkable;
     }
 }

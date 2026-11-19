@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Builds the 2D grid of Nodes that A* searches.
-// Put this on an empty GameObject placed at the CENTRE of your floor.
 public class GridManager : MonoBehaviour
 {
     [Header("Grid Settings")]
@@ -38,7 +37,6 @@ public class GridManager : MonoBehaviour
         CreateGrid();
     }
 
-    // Call this again at runtime if your walls move or change.
     public void CreateGrid()
     {
         nodeRadius = Mathf.Max(0.05f, nodeRadius);
@@ -56,9 +54,7 @@ public class GridManager : MonoBehaviour
             for (int y = 0; y < gridSizeY; y++)
             {
                 // Centre of this cell in world space
-                Vector3 worldPoint = bottomLeft
-                                     + Vector3.right * (x * nodeDiameter + nodeRadius)
-                                     + Vector3.forward * (y * nodeDiameter + nodeRadius);
+                Vector3 worldPoint = bottomLeft + Vector3.right * (x * nodeDiameter + nodeRadius) + Vector3.forward * (y * nodeDiameter + nodeRadius);
 
                 // If the sphere touches anything on the wall layer, the cell is blocked
                 bool walkable = !Physics.CheckSphere(worldPoint, nodeRadius * ObstacleCheckScale, unwalkableMask);
@@ -109,8 +105,7 @@ public class GridManager : MonoBehaviour
         return neighbours;
     }
 
-    // If the given node is blocked (e.g. the player is hugging a wall), finds the
-    // walkable node closest to the given world position. Returns null if there is none.
+    // If the given node is blocked (e.g. the player is hugging a wall), finds the walkable node closest to the given world position. Returns null if there is none.
     public Node GetClosestWalkableNode(Node node, Vector3 worldPosition)
     {
         if (node.isWalkable)

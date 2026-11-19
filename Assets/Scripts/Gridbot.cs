@@ -3,7 +3,7 @@ using UnityEngine;
 
 // NPC BRAIN #1 - "GridBot"
 // A Finite State Machine (enum + switch) that moves using the custom A* grid.
-// Put this on the NPC INSTEAD of NPCController. The NPC also needs a Collider.
+// Put this on the A* NPC. The NPC also needs a Collider.
 //
 // States and what makes it change state:
 //   PATROL      -> Pursue      : sees the player (inside its view cone, or very close)
@@ -99,6 +99,10 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     [Tooltip("Random aim error in degrees, so it doesn't hit every single shot.")]
     public float aimSpread = 4f;
 
+    [Header("Damage Model (Option A)")]
+    [Tooltip("GridBot is a marksman: few grazes and a big critical. Average = 1.1 x base damage.")]
+    public DamageProfile damageProfile = new DamageProfile(0.25f, 0.5f, 0.15f, 2.5f);
+
     [Header("Retreat")]
     public float coverSearchRadius = 10f;
     [Tooltip("Hiding spots closer than this to the threat are ignored.")]
@@ -180,22 +184,15 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     public float CurrentHealth { get { return currentHealth; } }
     public float MaxHealth { get { return maxHealth; } }
 
-    // Counter for automatic IDs. Reset each time Play starts, so numbering always begins at 1.
-    private static int nextAutoId = 1;
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-    static void ResetAutoId()
-    {
-        nextAutoId = 1;
-    }
-
     // ========================= Unity =========================
     void Awake()
     {
+        // No ID typed in: number the GridBots in scene order (GridBot 1, GridBot 2, ...).
+        // Works the same after the level restarts, unlike a counter that keeps counting.
         if (string.IsNullOrEmpty(npcId))
         {
-            npcId = "GridBot " + nextAutoId;
-            nextAutoId++;
+            GridBot[] all = FindObjectsByType<GridBot>(FindObjectsSortMode.InstanceID);
+            npcId = "GridBot " + (System.Array.IndexOf(all, this) + 1);
         }
     }
 
@@ -575,7 +572,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     bool CanSeePlayer(bool useViewCone)
     {
         if (target == null) return false;
-        if (targetPlayer != null && targetPlayer.IsDead) return false; // Dead player waiting to respawn
+        if (targetPlayer != null && targetPlayer.IsDead) return false; // Dead: the level is about to restart
 
         Vector3 toPlayer = target.position - transform.position;
         toPlayer.y = 0f;
@@ -792,6 +789,8 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         {
             bulletScript.firedByPlayer = false;
             bulletScript.damage = bulletDamage;
+            bulletScript.damageProfile = damageProfile; // Option A: this bullet rolls its damage on hit
+            bulletScript.shooterName = npcId;
         }
 
         Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();

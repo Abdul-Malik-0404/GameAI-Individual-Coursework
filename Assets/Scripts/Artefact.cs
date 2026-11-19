@@ -1,11 +1,13 @@
 using UnityEngine;
 
-// A collectible artefact. The ArtefactSpawner adds this automatically, but you can also put it on your prefab.
-// The player picks it up by walking into it: it heals the player and counts towards the total.
+// A placed artefact. The ArtefactSpawner adds this automatically and fills in its type.
+// Pick-up is optional for the brief: walking into it collects it, and Health Pack / Extra Health heal.
 public class Artefact : MonoBehaviour
 {
+    [Tooltip("Set by the spawner, e.g. 'Shield'.")]
+    public string typeName = "Artefact";
     [Tooltip("Health given to the player on pick-up (0 = none).")]
-    public int healAmount = 20;
+    public int healAmount = 0;
     [Tooltip("Degrees per second it spins, so it stands out.")]
     public float spinSpeed = 90f;
     [Tooltip("How far it bobs up and down.")]
