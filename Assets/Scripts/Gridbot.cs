@@ -1,9 +1,26 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// NPC BRAIN #1 - "GridBot"
+// A Finite State Machine (enum + switch) that moves using the custom A* grid.
+// Put this on the A* NPC. The NPC also needs a Collider.
+//
+// States and what makes it change state:
+//   PATROL      -> Pursue      : sees the player (inside its view cone, or very close)
+//               -> Investigate : gets shot without seeing who did it, or HEARS a gunshot
+//                                (15 m in the open, only 7.5 m through a wall - walls muffle sound)
+//   INVESTIGATE -> Pursue      : sees the player
+//               -> Patrol      : searched the spot (and maybe nearby spots) and found nothing, or timed out
+//   PURSUE      -> Attack      : player within attack range and in line of sight
+//               -> Investigate : lost sight of the player (goes to where it predicts the player went)
+//   ATTACK      -> Pursue      : player moved out of range
+//               -> Investigate : lost sight of the player
+//   ANY         -> Retreat     : health drops to 20% or less
+//   RETREAT     -> Investigate : healed back up to 60% while hidden (goes back to the last known position)
 [RequireComponent(typeof(Rigidbody))]
 public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
 {
+    // ============================ FSM ============================
     public enum BotState { Patrol, Investigate, Pursue, Attack, Retreat }
 
     [Header("State (watch this change in Play mode)")]
@@ -95,6 +112,10 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     [Header("Debug")]
     public bool logStateChanges = true;
 
+    // Option B: set by GridBotSquad if this bot is in a squad (null = acts alone)
+    [HideInInspector] public GridBotSquad squad;
+
+    // ======================= Private data =======================
     private Rigidbody rb;
     private Rigidbody targetRb;
     private PlayerController targetPlayer;  // Used to ignore the player while they are dead
@@ -116,6 +137,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     private bool hasFaceTarget;
     private Vector3 faceTarget;
     private bool isSpinning;
+    private bool isCatchingUp; // Squad follower running to get back to its slot
 
     // Senses and memory
     private bool seesPlayer;
@@ -158,13 +180,24 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
+    // ===================== HUD (IHUDTarget) =====================
     // GameHUD reads these to draw the label above this NPC.
     public string Id { get { return npcId; } }
-    public string StateName { get { return currentState.ToString(); } }
+    public string StateName
+    {
+        get
+        {
+            // In a squad, Patrol is shown as the bot's role in the formation
+            if (squad != null && currentState == BotState.Patrol)
+                return squad.Leader == this ? "Patrol (Leader)" : "Formation";
+            return currentState.ToString();
+        }
+    }
     public Color StateColor { get { return GetStateColor(currentState); } }
     public float CurrentHealth { get { return currentHealth; } }
     public float MaxHealth { get { return maxHealth; } }
 
+    // ========================= Unity =========================
     void Awake()
     {
         // No ID typed in: number the GridBots in scene order (GridBot 1, GridBot 2, ...).
@@ -235,19 +268,20 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         wantsToMove = false;
         hasFaceTarget = false;
         isSpinning = false;
+        isCatchingUp = false;
 
-        // Senses
+        // ---- Senses ----
         // Calm (Patrol/Investigate): only sees inside its view cone.
         // Alert (Pursue/Attack/Retreat): keeps track of the player all around, as long as no wall is in the way.
         bool alert = currentState == BotState.Pursue || currentState == BotState.Attack || currentState == BotState.Retreat;
         seesPlayer = CanSeePlayer(!alert);
         if (seesPlayer) RememberPlayer();
 
-        // Global transition: low health overrides every other state
+        // ---- Global transition: low health overrides every other state ----
         if (currentState != BotState.Retreat && HealthPercent <= retreatHealthPercent)
             ChangeState(BotState.Retreat);
 
-        // Run the current state
+        // ---- Run the current state ----
         switch (currentState)
         {
             case BotState.Patrol:      UpdatePatrol();      break;
@@ -263,7 +297,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         if (isDead || !initialized) return;
 
         Vector3 moveDirection = wantsToMove ? GetPathDirection() : Vector3.zero;
-        bool fast = currentState == BotState.Pursue || currentState == BotState.Retreat;
+        bool fast = currentState == BotState.Pursue || currentState == BotState.Retreat || isCatchingUp;
         float speed = fast ? chaseSpeed : patrolSpeed;
 
         // Move with the Rigidbody so walls still stop it; keep Y so gravity still works
@@ -288,6 +322,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
+    // ===================== State changes =====================
     void ChangeState(BotState newState)
     {
         if (logStateChanges && newState != currentState)
@@ -310,6 +345,8 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
                 break;
 
             case BotState.Pursue:
+                // Option B: tell the rest of the squad where the player is
+                if (squad != null) squad.ReportPlayer(this, lastKnownPlayerPosition);
                 break;
 
             case BotState.Attack:
@@ -330,14 +367,27 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         ChangeState(BotState.Investigate);
     }
 
+    // ======================== States ========================
 
-    // PATROL: walk between random patrol points, pausing a random time at each
+    // 1. PATROL: walk between random patrol points, pausing a random time at each
+    //    (in a squad: followers keep their formation slot instead, and the leader waits for stragglers)
     void UpdatePatrol()
     {
         if (seesPlayer)
         {
             ChangeState(BotState.Pursue);
             return;
+        }
+
+        // Option B: squad behaviour
+        if (squad != null && squad.Leader != null)
+        {
+            if (squad.Leader != this)
+            {
+                UpdateFormationSlot(); // Follower: stay in my slot
+                return;
+            }
+            if (squad.LeaderShouldWait()) return; // Leader: stand still until the group catches up
         }
 
         // Pausing at a point
@@ -356,7 +406,25 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
             patrolWaitTimer = Mathf.Max(0.1f, Random.Range(minPatrolWait, maxPatrolWait));
     }
 
-    // INVESTIGATE: go to a point of interest (shot origin / last known position), then scan the area
+    // Squad follower: walk (or run, if far behind) to my slot, then face the same way as the leader
+    void UpdateFormationSlot()
+    {
+        Vector3 slot = squad.GetSlotPosition(this);
+        float distance = FlatDistance(transform.position, slot);
+
+        if (distance > squad.arriveDistance)
+        {
+            MoveTowards(slot); // A* path to my own slot - each follower has its own route
+            isCatchingUp = distance > squad.catchUpDistance;
+        }
+        else
+        {
+            hasFaceTarget = true;
+            faceTarget = transform.position + squad.Leader.transform.forward * 5f;
+        }
+    }
+
+    // 2. INVESTIGATE: go to a point of interest (shot origin / last known position), then scan the area
     void UpdateInvestigate()
     {
         if (seesPlayer)
@@ -401,7 +469,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // PURSUE: chase the player with A* while it can see them
+    // 3. PURSUE: chase the player with A* while it can see them
     void UpdatePursue()
     {
         // Lost sight for more than a moment: go to where it predicts the player went
@@ -428,7 +496,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // ATTACK: stand still, face the player and shoot
+    // 4. ATTACK: stand still, face the player and shoot
     void UpdateAttack()
     {
         if (!seesPlayer)
@@ -463,7 +531,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // RETREAT: run to the best hiding spot, heal while hidden, come back when healthy
+    // 5. RETREAT: run to the best hiding spot, heal while hidden, come back when healthy
     void UpdateRetreat()
     {
         // Heal slowly, but only while the player can't see it
@@ -501,6 +569,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
+    // ======================== Damage ========================
     public void TakeDamage(int damage, Vector3 sourcePosition)
     {
         if (isDead) return;
@@ -519,6 +588,9 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         hasThreat = true;
 
         if (!initialized) return;
+
+        // Option B: tell the rest of the squad where the shot came from
+        if (squad != null) squad.ReportPlayer(this, sourcePosition);
 
         switch (currentState)
         {
@@ -545,6 +617,19 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         Destroy(gameObject);
     }
 
+    // Option B: a squad mate spotted the player or was shot at this position.
+    // If I'm calm (patrolling or investigating) and can't see the player myself, I go and check.
+    public void HearSquadAlert(Vector3 position)
+    {
+        if (isDead || !initialized || seesPlayer) return;
+        if (currentState != BotState.Patrol && currentState != BotState.Investigate) return;
+
+        lastThreatPosition = position;
+        hasThreat = true;
+        StartInvestigating(position);
+    }
+
+    // ===================== Senses & memory =====================
     bool CanSeePlayer(bool useViewCone)
     {
         if (target == null) return false;
@@ -631,6 +716,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         return !pathfinding.HasLineOfSight(viewer, spot);
     }
 
+    // ===================== Decision helpers =====================
     void PickNextPatrolPoint()
     {
         ClearDestination();
@@ -774,6 +860,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         Destroy(bullet, 3f);
     }
 
+    // ===================== A* path following =====================
     // Call every frame the bot should be walking. Only re-runs A* when needed:
     // a new destination, the destination moved (and the refresh timer ran out), or the last search failed.
     void MoveTowards(Vector3 destination)
@@ -837,6 +924,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         return Vector3.Distance(a, b);
     }
 
+    // ========================= Gizmos =========================
     // Always: coloured ball above the head = current state, white line = current A* path.
     void OnDrawGizmos()
     {
