@@ -8,23 +8,6 @@ public interface IDamageable
     void TakeDamage(int damage, Vector3 sourcePosition);
 }
 
-// OPTION A - PROBABILISTIC DAMAGE
-// Every time an NPC hits the player, the damage is decided by a dice roll instead of a fixed number:
-//
-//   roll = random number from 0 to 1
-//   roll < critChance                    -> CRITICAL : base damage x critMultiplier
-//   roll < critChance + grazeChance      -> GRAZE    : base damage x grazeMultiplier
-//   otherwise                            -> HIT      : base damage x 1
-//
-// Average damage per hit = base x (crit% x critMult + graze% x grazeMult + normal% x 1)
-//
-// The model is ASYMMETRIC in two ways:
-//   1. Between the two sides: NPC hits on the player are rolled; the player's hits on NPCs are fixed.
-//      The player's damage stays predictable so skill decides the fight, while enemy damage
-//      varies so fights don't feel scripted.
-//   2. In shape: most hits do normal or reduced damage, with a rare big critical - a long tail on the
-//      high side (a right-skewed distribution), so a crit is a rare, readable "spike" of danger.
-// Each NPC has its own profile (set in its Inspector) to match its character.
 [System.Serializable]
 public class DamageProfile
 {
@@ -86,9 +69,6 @@ public class DamageProfile
     }
 }
 
-// Put this on the bullet prefab.
-// The prefab needs: a Rigidbody with Use Gravity OFF, and a Collider with Is Trigger ON.
-// The player and the NPCs share the same prefab.
 public class Bullet : MonoBehaviour
 {
     [Tooltip("Base damage. NPCs overwrite this on the bullets they fire.")]
@@ -119,14 +99,13 @@ public class Bullet : MonoBehaviour
         if (firedByPlayer)
         {
             if (player != null) return;                 // Don't hit the shooter
-            if (npc != null) npc.TakeDamage(damage, origin); // Player damage is fixed (asymmetric model)
+            if (npc != null) npc.TakeDamage(damage, origin); // Player damage is fixed
         }
         else
         {
             if (npc != null) return;                    // NPC bullets pass through NPCs (no friendly fire)
             if (player != null)
             {
-                // Option A: roll the dice for this hit (fixed damage only if no profile was given)
                 string hitType = "HIT";
                 int finalDamage = damage;
                 if (damageProfile != null)

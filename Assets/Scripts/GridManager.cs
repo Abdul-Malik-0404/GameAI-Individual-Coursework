@@ -17,8 +17,7 @@ public class GridManager : MonoBehaviour
     [Header("Debug")]
     public bool drawGridGizmos = true;
 
-    // The sphere used to test for walls is slightly smaller than the cell,
-    // so a wall that only touches the edge of a cell does not block it.
+    // The sphere used to test for walls is slightly smaller than the cell, so a wall that only touches the edge of a cell does not block it.
     private const float ObstacleCheckScale = 0.9f;
 
     private Node[,] grid;

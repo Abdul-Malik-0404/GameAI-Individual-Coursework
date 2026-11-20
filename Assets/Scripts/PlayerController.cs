@@ -51,7 +51,7 @@ public class PlayerController : MonoBehaviour
         Keyboard kb = Keyboard.current;
         Mouse mouse = Mouse.current;
 
-        // 1. Gather 8-directional input (WASD or Arrow Keys)
+        // Gather 8-directional input (WASD or Arrow Keys)
         float moveX = 0f;
         float moveZ = 0f;
 
@@ -66,7 +66,7 @@ public class PlayerController : MonoBehaviour
         // Normalize prevents moving faster diagonally
         movement = new Vector3(moveX, 0f, moveZ).normalized;
 
-        // 2. Handle Projectile Attack (Spacebar or Left Click)
+        // Handle Projectile Attack (Spacebar or Left Click)
         bool spacePressed = kb != null && kb.spaceKey.wasPressedThisFrame;
         bool clickPressed = mouse != null && mouse.leftButton.wasPressedThisFrame;
 
@@ -115,7 +115,6 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // Called by NPC bullets and by the Tanker's ram. hitType comes from the NPC's damage roll (Option A).
     public void TakeDamage(int damage, string hitType)
     {
         if (IsDead) return;

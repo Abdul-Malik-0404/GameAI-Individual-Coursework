@@ -1,37 +1,10 @@
 using UnityEngine;
 using UnityEngine.AI;
 
-// NPC BRAIN #2 - "TANKER"
-// A slow, heavily armoured NPC that guards a post. Moves with Unity's NavMesh
-// (the NavMeshAgent plans the path, the Rigidbody does the moving - the same way GridBot and the player move).
-// Put this on the NavMesh NPC.
-//
-// How it differs from GridBot (A*):
-//   GridBot : patrols, sees with a view cone, fires single aimed shots, FLEES and heals at low health.
-//   Tanker  : guards one post, HEARS gunshots through walls, has an ARMOURED FRONT, fires shotgun
-//             volleys, CHARGES and rams, is STUNNED after a charge (its weak moment), and becomes
-//             ENRAGED at low health instead of fleeing.
-//
-// States and what makes it change state:
-//   GUARD   -> Chase   : sees the player
-//           -> Search  : hears a gunshot nearby, or is shot without seeing the shooter
-//   SEARCH  -> Chase   : sees the player
-//           -> Guard   : reached the spot, looked around, found nothing (walks back to its post)
-//   CHASE   -> Bombard : player within bombard range and visible
-//           -> Charge  : charge ready + player in charge range + clear straight line + dice roll
-//                        (guaranteed if the player keeps it out of range for a few seconds = kiting)
-//           -> Search  : lost sight of the player (goes to their last known position)
-//   BOMBARD -> Chase   : player moved out of range
-//           -> Charge  : same rule as in Chase
-//           -> Search  : lost sight of the player
-//   CHARGE  -> Recover : rammed the player, crashed into a wall, or ran out of charge time
-//   RECOVER -> Chase / Bombard / Search : once the stun wears off (longer after crashing into a wall)
-// At 35% health it becomes ENRAGED for the rest of its life: faster, fires faster, charges more often.
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(Rigidbody))]
 public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
 {
-    // ============================ FSM ============================
     public enum TankerState { Guard, Search, Chase, Bombard, Charge, Recover }
 
     [Header("State (watch this change in Play mode)")]
@@ -136,7 +109,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
     [Header("Debug")]
     public bool logStateChanges = true;
 
-    // ======================= Private data =======================
     private NavMeshAgent agent;
     private Rigidbody rb;
     private PlayerController targetPlayer;
@@ -181,14 +153,12 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         get { return currentHealth / maxHealth; }
     }
 
-    // ===================== HUD (IHUDTarget) =====================
     public string Id { get { return npcId; } }
     public string StateName { get { return isEnraged ? currentState + " (Enraged)" : currentState.ToString(); } }
     public Color StateColor { get { return GetStateColor(currentState); } }
     public float CurrentHealth { get { return currentHealth; } }
     public float MaxHealth { get { return maxHealth; } }
 
-    // ========================= Unity =========================
     void Awake()
     {
         // No ID typed in: number the Tankers in scene order (Tanker 1, Tanker 2, ...).
@@ -266,7 +236,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         isRushing = false;
         hasFaceTarget = false;
 
-        // ---- Senses ----
         // Calm (Guard/Search): only sees inside its view cone. In a fight: tracks the player all around.
         bool alert = currentState != TankerState.Guard && currentState != TankerState.Search;
         seesPlayer = CanSeePlayer(!alert);
@@ -276,13 +245,13 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
             lastSeenTime = Time.time;
         }
 
-        // ---- Low health: enrage (a one-way phase change, instead of fleeing like GridBot) ----
+        // Low health: enrage (a one-way phase change, instead of fleeing like GridBot)
         if (!isEnraged && HealthPercent <= enrageHealthPercent)
             Enrage();
 
         agent.speed = CurrentMoveSpeed();
 
-        // ---- Run the current state ----
+        // Run the current state
         switch (currentState)
         {
             case TankerState.Guard:   UpdateGuard();   break;
@@ -298,7 +267,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
     {
         if (isDead || agent == null) return;
 
-        // ---- Charging: rush in a straight line, ignoring the NavMesh ----
+        // Charging: rush in a straight line, ignoring the NavMesh
         if (isRushing && currentState == TankerState.Charge)
         {
             rushTime += Time.fixedDeltaTime;
@@ -326,7 +295,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
             return; // No turning mid-charge
         }
 
-        // ---- Normal movement: follow the NavMesh path ----
+        // Normal movement: follow the NavMesh path
         Vector3 move = Vector3.zero;
         if (wantsToMove && agent.hasPath && !HasArrived())
         {
@@ -355,7 +324,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         PlayerController player = collision.collider.GetComponentInParent<PlayerController>();
         if (player == null) return;
 
-        // Option A: the ram's damage is rolled too
         string hitType;
         int rolledDamage = damageProfile.Roll(ramDamage, npcId + " ram", out hitType);
         player.TakeDamage(rolledDamage, hitType == "HIT" ? "RAM" : "RAM " + hitType);
@@ -365,7 +333,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         StartRecover(recoverTime);
     }
 
-    // ===================== State changes =====================
     void ChangeState(TankerState newState)
     {
         if (logStateChanges && newState != currentState)
@@ -426,9 +393,8 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         Debug.Log(npcId + " is ENRAGED!");
     }
 
-    // ======================== States ========================
 
-    // 1. GUARD: hold the guard post and sweep left and right
+    // GUARD: hold the guard post and sweep left and right
     void UpdateGuard()
     {
         if (seesPlayer)
@@ -452,7 +418,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         faceTarget = transform.position + lookDirection * 5f;
     }
 
-    // 2. SEARCH: go to where the noise / shot / last sighting was, look around, then go back to guarding
+    // SEARCH: go to where the noise / shot / last sighting was, look around, then go back to guarding
     void UpdateSearch()
     {
         if (seesPlayer)
@@ -487,7 +453,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
             ChangeState(TankerState.Guard); // Found nothing: back to the post
     }
 
-    // 3. CHASE: close the distance with the NavMesh
+    // CHASE: close the distance with the NavMesh
     void UpdateChase()
     {
         if (!seesPlayer && Time.time - lastSeenTime > loseSightDelay)
@@ -512,7 +478,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         MoveTo(seesPlayer ? target.position : lastKnownPlayerPosition);
     }
 
-    // 4. BOMBARD: stand and fire shotgun volleys in bursts
+    // BOMBARD: stand and fire shotgun volleys in bursts
     void UpdateBombard()
     {
         if (!seesPlayer)
@@ -560,7 +526,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // 5. CHARGE: wind up (stand and aim), then rush in a straight line (handled in FixedUpdate)
+    // CHARGE: wind up (stand and aim), then rush in a straight line (handled in FixedUpdate)
     void UpdateCharge()
     {
         if (chargeWindingUp)
@@ -584,7 +550,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         isRushing = true;
     }
 
-    // 6. RECOVER: stunned after a charge. Stands still and takes extra damage.
+    // RECOVER: stunned after a charge. Stands still and takes extra damage.
     void UpdateRecover()
     {
         if (stateTimer < currentRecoverTime) return;
@@ -621,7 +587,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         return true;
     }
 
-    // ======================== Damage ========================
     public void TakeDamage(int damage, Vector3 sourcePosition)
     {
         if (isDead) return;
@@ -667,7 +632,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         Destroy(gameObject);
     }
 
-    // ======================= Senses =======================
     bool CanSeePlayer(bool useViewCone)
     {
         if (target == null) return false;
@@ -718,7 +682,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         return toPoint.sqrMagnitude < 0.01f || Vector3.Angle(transform.forward, toPoint) <= maxAngle;
     }
 
-    // ======================= Attacks =======================
     // Fires several pellets fanned out around the aim direction (e.g. -12, 0, +12 degrees)
     void FireVolley()
     {
@@ -740,7 +703,7 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
             {
                 bulletScript.firedByPlayer = false;
                 bulletScript.damage = bulletDamage;
-                bulletScript.damageProfile = damageProfile; // Option A: each pellet rolls its damage on hit
+                bulletScript.damageProfile = damageProfile;
                 bulletScript.shooterName = npcId;
             }
 
@@ -751,7 +714,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         }
     }
 
-    // ===================== NavMesh movement =====================
     // Call every frame the Tanker should walk. Only asks the NavMesh for a new path when needed.
     void MoveTo(Vector3 destination)
     {
@@ -799,7 +761,6 @@ public class TankerBot : MonoBehaviour, IDamageable, IHUDTarget
         return Vector3.Distance(a, b);
     }
 
-    // ========================= Colours & Gizmos =========================
     Color GetStateColor(TankerState state)
     {
         switch (state)

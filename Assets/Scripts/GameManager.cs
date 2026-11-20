@@ -2,16 +2,6 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
-// GAME FLOW
-//   Playing    -> the game runs normally.
-//   PlayerDead -> the player died: after a short countdown the WHOLE LEVEL restarts
-//                 (the scene is reloaded, so the player, every NPC and the artefacts all reset).
-//   Victory    -> every NPC has been defeated: the game ends and shows the time taken.
-//                 Press Enter to play again.
-//
-// Put this on ONE empty GameObject called "GameManager".
-// The scene must be in the build's scene list (File > Build Profiles > Scene List > Add Open Scenes),
-// otherwise Unity can't reload it.
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
@@ -126,7 +116,6 @@ public class GameManager : MonoBehaviour
         return minutes + ":" + secs.ToString("00");
     }
 
-    // ======================= Screens =======================
     void OnGUI()
     {
         if (Event.current.type != EventType.Repaint) return;

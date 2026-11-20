@@ -12,15 +12,6 @@ public interface IHUDTarget
     Transform transform { get; }    // Already provided by every MonoBehaviour
 }
 
-// In-game HUD. Shows, in the Game view and in builds:
-//   - above every NPC (anything implementing IHUDTarget): its ID, current FSM state and a health bar
-//   - top-left: the player's health bar
-//   - floating damage numbers whenever the player or an NPC loses health, and "DEFEATED" when one dies
-//
-// It uses Unity's built-in immediate-mode GUI (OnGUI), so it needs no Canvas, prefabs or fonts.
-// It only READS values, so it never changes how the NPCs or the player behave.
-//
-// Put this on any ONE GameObject in the scene (e.g. an empty object called "HUD").
 public class GameHUD : MonoBehaviour
 {
     [Header("Layout")]
@@ -75,7 +66,7 @@ public class GameHUD : MonoBehaviour
         player = FindFirstObjectByType<PlayerController>();
         if (player != null)
         {
-            // The player tells us about every hit, including its type from the damage roll (Option A)
+            // The player tells us about every hit, including its type from the damage roll 
             player.Damaged += OnPlayerDamaged;
         }
 
@@ -111,7 +102,7 @@ public class GameHUD : MonoBehaviour
             RefreshNPCList();
         }
 
-        // ---- NPCs: health went down since last frame? Show the damage. Also spot deaths ----
+        // NPCs: health went down since last frame? Show the damage. Also spot deaths
         // (The player's damage numbers come from its Damaged event instead - see OnPlayerDamaged.)
         for (int i = trackedNPCs.Count - 1; i >= 0; i--)
         {
@@ -144,7 +135,7 @@ public class GameHUD : MonoBehaviour
             tracked.lastPosition = tracked.target.transform.position;
         }
 
-        // ---- Age the damage numbers and remove old ones ----
+        // Age the damage numbers and remove old ones
         for (int i = popups.Count - 1; i >= 0; i--)
         {
             popups[i].age += Time.deltaTime;
@@ -203,7 +194,6 @@ public class GameHUD : MonoBehaviour
         popups.Add(popup);
     }
 
-    // ======================= Drawing =======================
     void OnGUI()
     {
         // OnGUI runs several times a frame; only the Repaint pass actually draws
@@ -215,7 +205,7 @@ public class GameHUD : MonoBehaviour
         float s = uiScale * Screen.height / 1080f; // Scale everything with the Game view height
         PrepareStyles(s);
 
-        // ---- Above each NPC: ID, state, health bar ----
+        // Above each NPC: ID, state, health bar
         foreach (TrackedNPC tracked in trackedNPCs)
         {
             if (tracked.component == null) continue;
@@ -240,7 +230,7 @@ public class GameHUD : MonoBehaviour
             DrawBar(new Rect(x - barWidth / 2f, y - 20f * s, barWidth, barHeight), health / maxHealth, healthText);
         }
 
-        // ---- Top-left: player health ----
+        // Top-left: player health
         if (player != null)
         {
             int health = Mathf.Max(0, player.healthPoints);
@@ -257,7 +247,7 @@ public class GameHUD : MonoBehaviour
             }
         }
 
-        // ---- Floating damage numbers ----
+        // Floating damage numbers
         foreach (Popup popup in popups)
         {
             Vector3 world = popup.worldPosition + Vector3.up * popupRiseSpeed * popup.age;

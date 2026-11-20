@@ -44,38 +44,15 @@ public class ArtefactType
     }
 }
 
-// ARTEFACT SPAWNER (section 2.2: procedural artefact generation)
-// Places 6 distinct artefact types, 3 of each (18 in total), using these rules:
-//
-// VALIDITY (never broken - an artefact must always be placeable and collectable):
-//   1. Not inside or touching a wall                    (Physics.CheckSphere)
-//   2. On the walkable NavMesh                           (NavMesh.SamplePosition)
-//   3. Reachable: a COMPLETE path from the player's start (NavMesh.CalculatePath + PathComplete)
-//
-// PLACEMENT CONSTRAINTS (the design rules):
-//   4. Minimum spacing    : at least 2 m from any artefact, and 5 m from one of the SAME type
-//   5. Exclusion zones    : nothing within 4 m of the player's start or of any NPC's start
-//   6. Balanced regions   : the arena is split into regions (2 x 2) and each artefact goes to the
-//                           region with the fewest so far, so they spread evenly over the arena
-//   7. Location suitability: each type has a preferred kind of spot -
-//                           Health Pack + Shield near cover, Speed Boost + Extra Health in the open
-//
-// Rules 6 and 7 are "soft": if a spot can't be found with them after many tries, they are relaxed
-// (rules 1-5 never are), so generation always finishes. The Console reports how often that happened.
-//
-// Everything resets with the level: when the player dies, the GameManager reloads the scene and
-// this runs again. Seed = 0 gives a new layout each time; any other seed gives the same layout.
-//
-// Put this on an empty GameObject at the CENTRE of your floor, at floor height.
 public class ArtefactSpawner : MonoBehaviour
 {
     [Header("Artefact Types (six types, at least 3 of each)")]
     public List<ArtefactType> artefactTypes = new List<ArtefactType>
     {
-        new ArtefactType("Health Pack",  PrimitiveType.Cube, new Color(0.2f, 0.9f, 0.3f), 0.5f, Vector3.zero, ArtefactPlacement.NearCover, 20),
+        new ArtefactType("Health Pack", PrimitiveType.Cube, new Color(0.2f, 0.9f, 0.3f), 0.5f, Vector3.zero, ArtefactPlacement.NearCover, 20),
         new ArtefactType("Speed Boost", PrimitiveType.Capsule, Color.cyan, 0.4f, Vector3 zero,    ArtefactPlacement.OpenGround, 0),
         new ArtefactType("Hit Boost", PrimitiveType.Cylinder, new Color(1f, 0.5f, 0f), 0.45f, Vector3.zero, ArtefactPlacement.Anywhere, 0),
-        new ArtefactType("Shield", PrimitiveType.Sphere,   new Color(0.2f, 0.4f, 1f), 0.6f,  Vector3.zero, ArtefactPlacement.NearCover, 0),
+        new ArtefactType("Shield", PrimitiveType.Sphere, new Color(0.2f, 0.4f, 1f), 0.6f,  Vector3.zero, ArtefactPlacement.NearCover, 0),
         new ArtefactType("Collectible", PrimitiveType.Cube, Color.yellow, 0.35f, new Vector3(45f, 0f, 45f), ArtefactPlacement.Anywhere, 0),
         new ArtefactType("Extra Health", PrimitiveType.Sphere, new Color(1f, 0.25f, 0.5f), 0.4f, Vector3.zero, ArtefactPlacement.OpenGround, 40)
     };
@@ -201,8 +178,6 @@ public class ArtefactSpawner : MonoBehaviour
         }
         originOnNavMesh = originHit.position;
 
-        // Spawn order: one of each type in turn (round-robin), so no type is left until last
-        // when space is running out. e.g. Health, Speed, Hit, Shield, Collectible, Extra, Health, ...
         List<int> order = new List<int>();
         int mostOfOneType = 0;
         foreach (ArtefactType type in artefactTypes) mostOfOneType = Mathf.Max(mostOfOneType, type.count);
@@ -247,7 +222,7 @@ public class ArtefactSpawner : MonoBehaviour
 
         for (int attempt = 0; attempt < maxAttemptsPerArtefact; attempt++)
         {
-            // ---- Rule 6: balanced regions - aim for the region with the fewest artefacts ----
+            // Balanced regions - aim for the region with the fewest artefacts
             int targetRegion = LeastFilledRegion(regionSkipped);
             bool strict = targetRegion >= 0; // -1 = every region has been skipped: relax the soft rules
             Vector3 candidate = RandomPointInRegion(targetRegion);
@@ -280,14 +255,14 @@ public class ArtefactSpawner : MonoBehaviour
     {
         spot = candidate;
 
-        // ---- Validity 1: not inside or touching a wall ----
+        // Not inside or touching a wall
         if (Physics.CheckSphere(candidate + Vector3.up * clearanceRadius, clearanceRadius, obstacleMask))
         {
             rejectedInsideWall++;
             return false;
         }
 
-        // ---- Validity 2: on the walkable NavMesh ----
+        // On the walkable NavMesh
         NavMeshHit navHit;
         if (!NavMesh.SamplePosition(candidate, out navHit, navMeshSampleDistance, NavMesh.AllAreas))
         {
@@ -296,14 +271,14 @@ public class ArtefactSpawner : MonoBehaviour
         }
         Vector3 point = navHit.position; // Snapped exactly onto the NavMesh
 
-        // ---- Rule 5: exclusion zones around the player's start and the NPCs ----
+        // Exclusion zones around the player's start and the NPCs
         if (InExclusionZone(point))
         {
             rejectedExclusion++;
             return false;
         }
 
-        // ---- Rule 4: minimum spacing (any type) and same-type spacing ----
+        // Minimum spacing (any type) and same-type spacing
         int spacingResult = SpacingCheck(point, typeIndex);
         if (spacingResult == 1)
         {
@@ -316,14 +291,14 @@ public class ArtefactSpawner : MonoBehaviour
             return false;
         }
 
-        // ---- Rule 7: location suitability (soft - only in the strict pass) ----
+        // Location suitability (soft - only in the strict pass)
         if (strict && !SuitableFor(type, point))
         {
             rejectedUnsuitable++;
             return false;
         }
 
-        // ---- Validity 3: reachable - a COMPLETE path must exist from the player's start ----
+        // Reachable - a COMPLETE path must exist from the player's start
         bool foundPath = NavMesh.CalculatePath(originOnNavMesh, point, NavMesh.AllAreas, path);
         if (!foundPath || path.status != NavMeshPathStatus.PathComplete)
         {
@@ -367,7 +342,6 @@ public class ArtefactSpawner : MonoBehaviour
         return !wallNearby; // OpenGround
     }
 
-    // ======================= Regions =======================
     // Returns the region (not skipped) with the fewest artefacts; ties are broken at random. -1 if none left.
     int LeastFilledRegion(bool[] skipped)
     {
@@ -417,7 +391,6 @@ public class ArtefactSpawner : MonoBehaviour
         return row * regions.x + column;
     }
 
-    // ======================= Spawning =======================
     void SpawnArtefact(int typeIndex, Vector3 spot, Vector3[] corners)
     {
         ArtefactType type = artefactTypes[typeIndex];
@@ -509,7 +482,6 @@ public class ArtefactSpawner : MonoBehaviour
         return Vector3.Distance(a, b);
     }
 
-    // ======================= Game view: counter and labels =======================
     void OnGUI()
     {
         if (Event.current.type != EventType.Repaint) return;
@@ -564,9 +536,6 @@ public class ArtefactSpawner : MonoBehaviour
         GUI.color = oldColor;
     }
 
-    // ======================= Scene view gizmos =======================
-    // White box = spawn area, grey lines = region borders,
-    // coloured lines = the verified NavMesh path to each artefact (in its type's colour).
     void OnDrawGizmos()
     {
         Gizmos.color = Color.white;
