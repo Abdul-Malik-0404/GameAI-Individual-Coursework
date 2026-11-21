@@ -680,7 +680,7 @@ GameObject:
   - component: {fileID: 242075491}
   - component: {fileID: 242075496}
   m_Layer: 7
-  m_Name: NPC1
+  m_Name: Patroller1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -868,6 +868,7 @@ MonoBehaviour:
   minDistanceFromThreat: 5
   coverCheckInterval: 0.5
   logStateChanges: 1
+  squad: {fileID: 0}
 --- !u!1 &285603015
 GameObject:
   m_ObjectHideFlags: 0
@@ -1293,7 +1294,7 @@ GameObject:
   - component: {fileID: 377631944}
   - component: {fileID: 377631945}
   m_Layer: 7
-  m_Name: NPC2
+  m_Name: HeavyGuard1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -2287,8 +2288,6 @@ MonoBehaviour:
   bulletPrefab: {fileID: 5228631189014024279, guid: c8a94295d3d2dd1a1ae03ab3f01e44f6, type: 3}
   firePoint: {fileID: 1997378690}
   bulletSpeed: 15
-  respawnDelay: 3
-  spawnProtectionTime: 2
 --- !u!54 &741451142
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -3668,7 +3667,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1379674272}
   m_Layer: 0
-  m_Name: GuardPost
+  m_Name: GuardPost1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -5186,7 +5185,7 @@ GameObject:
   - component: {fileID: 1853548672}
   - component: {fileID: 1853548671}
   m_Layer: 7
-  m_Name: NPC1 (1)
+  m_Name: Patroller2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -5252,6 +5251,7 @@ MonoBehaviour:
   minDistanceFromThreat: 5
   coverCheckInterval: 0.5
   logStateChanges: 1
+  squad: {fileID: 0}
 --- !u!54 &1853548672
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -5751,7 +5751,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2040670558}
   m_Layer: 0
-  m_Name: GuardPost (1)
+  m_Name: GuardPost2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -5788,7 +5788,7 @@ GameObject:
   - component: {fileID: 2082292169}
   - component: {fileID: 2082292168}
   m_Layer: 7
-  m_Name: NPC2 (1)
+  m_Name: HeavyGuard2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

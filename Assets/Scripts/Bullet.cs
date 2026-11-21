@@ -1,23 +1,18 @@
 using UnityEngine;
 
-// Anything a player's bullet can hurt (the NPC bots) implements this.
-// sourcePosition = where the shot was fired from, so the victim can react to it
-// (e.g. the GridBot goes to investigate that spot if it didn't see the shooter).
+// Implemented by damageable NPCs; sourcePosition reports where the shot originated.
 public interface IDamageable
 {
     void TakeDamage(int damage, Vector3 sourcePosition);
 }
 
+// Probabilistic damage roll (graze / normal hit / critical hit) for NPC attacks.
 [System.Serializable]
 public class DamageProfile
 {
-    [Tooltip("Chance (0-1) that a hit only grazes.")]
     [Range(0f, 1f)] public float grazeChance = 0.25f;
-    [Tooltip("Damage multiplier for a graze (0.5 = half damage).")]
     public float grazeMultiplier = 0.5f;
-    [Tooltip("Chance (0-1) of a critical hit.")]
     [Range(0f, 1f)] public float critChance = 0.15f;
-    [Tooltip("Damage multiplier for a critical hit (2.5 = two and a half times the damage).")]
     public float critMultiplier = 2.5f;
 
     public DamageProfile() { }
@@ -30,10 +25,9 @@ public class DamageProfile
         this.critMultiplier = critMultiplier;
     }
 
-    // Rolls the dice for one hit. Returns the final damage; hitType says what kind of hit it was.
     public int Roll(int baseDamage, string shooter, out string hitType)
     {
-        float roll = Random.value; // Uniform random number from 0 to 1
+        float roll = Random.value;
         float multiplier;
 
         if (roll < critChance)
@@ -58,7 +52,6 @@ public class DamageProfile
         return damage;
     }
 
-    // Average damage multiplier over many hits (useful for the write-up)
     public float ExpectedMultiplier
     {
         get
@@ -69,52 +62,47 @@ public class DamageProfile
     }
 }
 
+// Trigger-based projectile shared by both the player (fixed damage) and NPCs (rolled damage).
 public class Bullet : MonoBehaviour
 {
-    [Tooltip("Base damage. NPCs overwrite this on the bullets they fire.")]
     public int damage = 10;
-
-    [Tooltip("Leave ON for the player's bullets. NPCs switch it OFF on the bullets they fire.")]
     public bool firedByPlayer = true;
 
-    // Set by the NPC that fires this bullet. Left empty on the player's bullets (they don't roll).
     [System.NonSerialized] public DamageProfile damageProfile;
     [System.NonSerialized] public string shooterName = "NPC";
 
-    private Vector3 origin; // Where the bullet was fired from
+    private Vector3 origin;
 
     void Awake()
     {
-        // Awake runs inside Instantiate, so this is the muzzle (fire point) position
         origin = transform.position;
     }
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.isTrigger) return; // Ignore trigger zones, artefacts and other bullets
+        if (other.isTrigger) return;
 
         PlayerController player = other.GetComponentInParent<PlayerController>();
         IDamageable npc = other.GetComponentInParent<IDamageable>();
 
         if (firedByPlayer)
         {
-            if (player != null) return;                 // Don't hit the shooter
-            if (npc != null) npc.TakeDamage(damage, origin); // Player damage is fixed
+            if (player != null) return;
+            if (npc != null) npc.TakeDamage(damage, origin);
         }
         else
         {
-            if (npc != null) return;                    // NPC bullets pass through NPCs (no friendly fire)
+            if (npc != null) return;
             if (player != null)
             {
                 string hitType = "HIT";
-                int finalDamage = damage;
-                if (damageProfile != null)
-                    finalDamage = damageProfile.Roll(damage, shooterName, out hitType);
+                int finalDamage = damageProfile != null
+                    ? damageProfile.Roll(damage, shooterName, out hitType)
+                    : damage;
                 player.TakeDamage(finalDamage, hitType);
             }
         }
 
-        // Disappear on hitting anything else (walls, the target, etc.)
         Destroy(gameObject);
     }
 }

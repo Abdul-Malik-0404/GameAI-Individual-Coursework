@@ -1,19 +1,14 @@
 using UnityEngine;
 
-// A placed artefact. The ArtefactSpawner adds this automatically and fills in its type.
-// Pick-up is optional for the brief: walking into it collects it, and Health Pack / Extra Health heal.
+// Collectible world pickup attached and configured by ArtefactSpawner.
 public class Artefact : MonoBehaviour
 {
-    [Tooltip("Set by the spawner, e.g. 'Shield'.")]
     public string typeName = "Artefact";
-    [Tooltip("Health given to the player on pick-up (0 = none).")]
     public int healAmount = 0;
-    [Tooltip("Degrees per second it spins, so it stands out.")]
     public float spinSpeed = 90f;
-    [Tooltip("How far it bobs up and down.")]
     public float bobHeight = 0.15f;
 
-    [HideInInspector] public ArtefactSpawner spawner; // Set by the spawner
+    [HideInInspector] public ArtefactSpawner spawner;
 
     private Vector3 startPosition;
     private float bobOffset;
@@ -21,7 +16,7 @@ public class Artefact : MonoBehaviour
     void Start()
     {
         startPosition = transform.position;
-        bobOffset = Random.Range(0f, 6.28f); // So they don't all bob in sync
+        bobOffset = Random.Range(0f, 6.28f);
     }
 
     void Update()
@@ -32,7 +27,6 @@ public class Artefact : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        // Only the player can collect it (bullets and NPCs are ignored)
         PlayerController player = other.GetComponentInParent<PlayerController>();
         if (player == null || player.IsDead) return;
 

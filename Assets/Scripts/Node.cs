@@ -1,22 +1,17 @@
 using UnityEngine;
 
-// One cell of the pathfinding grid.
+// Single cell of the A* navigation grid storing walkability and search costs.
 public class Node
 {
-    public Vector3 worldPosition;   // Centre of this cell in the 3D world
-    public int gridX;               // Column index in the grid array (runs along world X)
-    public int gridY;               // Row index in the grid array (runs along world Z)
-    public bool isWalkable;         // False if a wall overlaps this cell
-    public Node parentNode;         // The node we came from - used to retrace the final path
+    public Vector3 worldPosition;
+    public int gridX;
+    public int gridY;
+    public bool isWalkable;
+    public Node parentNode;
 
-    public int gCost;               // Exact cost from the start node to this node
-    public int hCost;               // Estimated cost from this node to the target node
-
-    // F-Cost = G-Cost + H-Cost. A* always evaluates the node with the lowest F-Cost next.
-    public int fCost
-    {
-        get { return gCost + hCost; }
-    }
+    public int gCost;
+    public int hCost;
+    public int fCost { get { return gCost + hCost; } }
 
     public Node(bool isWalkable, Vector3 worldPosition, int gridX, int gridY)
     {
