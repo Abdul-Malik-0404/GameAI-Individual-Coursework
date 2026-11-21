@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Holds position within range (with hysteresis buffer) and fires velocity-leading shots.
+// Holds position within range (followers fan out to flank positions) and fires velocity-leading shots.
 public class GridBotAttackState : AgentState<GridBot, GridBot.BotState>
 {
     public override GridBot.BotState Id { get { return GridBot.BotState.Attack; } }
@@ -30,6 +30,17 @@ public class GridBotAttackState : AgentState<GridBot, GridBot.BotState>
         {
             owner.ChangeState(GridBot.BotState.Pursue);
             return;
+        }
+
+        // Squad followers sidestep toward their flank angle if bunched up with a teammate.
+        if (owner.squad != null && owner.squad.Leader != null && owner.squad.Leader != owner)
+        {
+            Vector3 flankPos = owner.squad.GetFlankPosition(owner, senses.Target.position, owner.attackRange);
+            if (owner.squad.IsCrowdedInCombat(owner) ||
+                SpatialUtility.FlatDistance(owner.transform.position, flankPos) > 1.5f)
+            {
+                owner.Motor.MoveTowards(flankPos, owner.patrolSpeed, owner.pathUpdateInterval);
+            }
         }
 
         owner.Motor.FacePoint(senses.Target.position);

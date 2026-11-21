@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Coordinates a leader-follower GridBot squad with formations and shared alerts.
+// Coordinates a leader-follower GridBot squad: patrol formations, shared alerts, flanking, and separation disband.
 public class GridBotSquad : MonoBehaviour
 {
     public enum FormationShape { Wedge, Line, Column }
@@ -22,6 +22,18 @@ public class GridBotSquad : MonoBehaviour
     public float maxStraggleDistance = 5f;
     public float maxWaitTime = 4f;
 
+    [Header("Combat Flanking")]
+    [Tooltip("Angle offset (degrees) followers take around the player relative to the leader.")]
+    public float flankAngle = 50f;
+    [Tooltip("Minimum distance followers keep from squadmates while attacking.")]
+    public float combatSpreadDistance = 2.5f;
+
+    [Header("Dynamic Disband")]
+    public bool isDynamic;
+    public float disbandDistance = 16f;
+    public float disbandDelay = 5f;
+    public float rejoinCooldown = 6f;
+
     [Header("Shared Alerts")]
     public bool shareAlerts = true;
 
@@ -41,6 +53,7 @@ public class GridBotSquad : MonoBehaviour
 
     private GridManager grid;
     private float leaderWaitTimer;
+    private readonly Dictionary<GridBot, float> separationTimers = new Dictionary<GridBot, float>();
 
     void Awake()
     {
@@ -60,13 +73,77 @@ public class GridBotSquad : MonoBehaviour
     void Update()
     {
         RemoveDeadMembers();
+        if (isDynamic)
+        {
+            UpdateSeparationDisband();
+            if (members.Count <= 1)
+            {
+                Disband();
+                return;
+            }
+        }
         CurrentShape = ChooseShape();
+    }
+
+    public void AddMember(GridBot bot)
+    {
+        if (bot == null || members.Contains(bot)) return;
+        members.Add(bot);
+        bot.squad = this;
+        separationTimers[bot] = 0f;
+    }
+
+    public void RemoveMember(GridBot bot, bool applyCooldown)
+    {
+        if (bot == null) return;
+        members.Remove(bot);
+        separationTimers.Remove(bot);
+        if (bot.squad == this) bot.squad = null;
+        if (applyCooldown) bot.SetRejoinCooldown(rejoinCooldown);
     }
 
     public Vector3 GetSlotPosition(GridBot member)
     {
         RemoveDeadMembers();
         return SlotPosition(members.IndexOf(member), CurrentShape);
+    }
+
+    // Computes a walkable flanking position around the player offset from the leader's angle of approach.
+    public Vector3 GetFlankPosition(GridBot member, Vector3 targetPos, float attackRange)
+    {
+        RemoveDeadMembers();
+        GridBot leader = Leader;
+        int slotNumber = members.IndexOf(member);
+        if (leader == null || slotNumber <= 0) return targetPos;
+
+        Vector3 toLeader = leader.transform.position - targetPos;
+        toLeader.y = 0f;
+        if (toLeader.sqrMagnitude < 0.01f) toLeader = -leader.transform.forward;
+        toLeader.Normalize();
+
+        int row = (slotNumber + 1) / 2;
+        float side = (slotNumber % 2 == 1) ? -1f : 1f;
+        Vector3 dir = Quaternion.Euler(0f, side * flankAngle * row, 0f) * toLeader;
+        Vector3 desired = targetPos + dir * (attackRange * 0.85f);
+
+        if (grid != null && grid.IsReady)
+        {
+            Node node = grid.GetClosestWalkableNode(grid.NodeFromWorldPoint(desired), desired);
+            if (node != null) return node.worldPosition;
+        }
+        return desired;
+    }
+
+    // Returns true if another alive squadmate is too close to the given member.
+    public bool IsCrowdedInCombat(GridBot member)
+    {
+        foreach (GridBot other in members)
+        {
+            if (other == null || other == member) continue;
+            if (SpatialUtility.FlatDistance(member.transform.position, other.transform.position) < combatSpreadDistance)
+                return true;
+        }
+        return false;
     }
 
     Vector3 SlotPosition(int slotNumber, FormationShape formation)
@@ -142,6 +219,43 @@ public class GridBotSquad : MonoBehaviour
             if (member != null && member != reporter)
                 member.HearSquadAlert(position);
         }
+    }
+
+    void UpdateSeparationDisband()
+    {
+        GridBot leader = Leader;
+        if (leader == null) return;
+
+        for (int i = members.Count - 1; i >= 1; i--)
+        {
+            GridBot follower = members[i];
+            float dist = SpatialUtility.FlatDistance(follower.transform.position, leader.transform.position);
+            if (dist > disbandDistance)
+            {
+                separationTimers.TryGetValue(follower, out float elapsed);
+                elapsed += Time.deltaTime;
+                separationTimers[follower] = elapsed;
+
+                if (elapsed >= disbandDelay)
+                {
+                    Debug.Log("[GridBotSquad] " + follower.npcId + " left " + name + " (separated).");
+                    RemoveMember(follower, true);
+                }
+            }
+            else
+            {
+                separationTimers[follower] = 0f;
+            }
+        }
+    }
+
+    void Disband()
+    {
+        for (int i = members.Count - 1; i >= 0; i--)
+            RemoveMember(members[i], true);
+
+        Debug.Log("[GridBotSquad] " + name + " disbanded.");
+        Destroy(gameObject);
     }
 
     void RemoveDeadMembers()

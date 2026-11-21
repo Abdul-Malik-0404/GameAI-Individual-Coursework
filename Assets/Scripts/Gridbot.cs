@@ -86,6 +86,7 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     private bool initialized;
     private bool isDead;
     private float fireTimer;
+    private float rejoinCooldownUntil;
 
     public GridManager Grid { get; private set; }
     public GridMotor Motor { get; private set; }
@@ -94,6 +95,8 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     public float StateTime { get { return fsm.StateTime; } }
     public float HealthPercent { get { return currentHealth / maxHealth; } }
     public bool CanFire { get { return fireTimer <= 0f; } }
+    public bool IsReady { get { return !isDead && initialized && Perception != null; } }
+    public bool IsOnRejoinCooldown { get { return Time.time < rejoinCooldownUntil; } }
 
     public string Id { get { return npcId; } }
     public Color StateColor { get { return GetStateColor(currentState); } }
@@ -123,10 +126,14 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
     void OnDisable()
     {
         PlayerController.OnShotFired -= HearGunshot;
+        if (GridBotSquadCoordinator.Instance != null)
+            GridBotSquadCoordinator.Instance.Unregister(this);
     }
 
     void Start()
     {
+        GridBotSquadCoordinator.EnsureInstance().Register(this);
+
         Rigidbody rb = GetComponent<Rigidbody>();
         rb.freezeRotation = true;
         currentHealth = maxHealth;
@@ -235,11 +242,18 @@ public class GridBot : MonoBehaviour, IDamageable, IHUDTarget
         if (!initialized) return;
 
         if (squad != null) squad.ReportPlayer(this, sourcePosition);
+        if (GridBotSquadCoordinator.Instance != null)
+            GridBotSquadCoordinator.Instance.BroadcastDistressCall(this, sourcePosition);
 
         if ((currentState == BotState.Patrol || currentState == BotState.Investigate) && !Perception.SeesPlayer)
             StartInvestigating(sourcePosition);
         else if (currentState == BotState.Retreat)
             retreatState.MarkCoverCompromised();
+    }
+
+    public void SetRejoinCooldown(float duration)
+    {
+        rejoinCooldownUntil = Time.time + duration;
     }
 
     public void HearSquadAlert(Vector3 position)
